@@ -14,7 +14,7 @@
  * Guardrails:
  *   - Never auto-update across major versions. The user opts in explicitly
  *     via `hyperframes upgrade`.
- *   - Skip on CI, non-TTY, dev mode, unknown installer, ephemeral exec (npx),
+ *   - Skip on CI, dev mode, unknown installer, ephemeral exec (npx),
  *     or when `HYPERFRAMES_NO_AUTO_INSTALL` / `HYPERFRAMES_NO_UPDATE_CHECK`
  *     is set.
  *   - If a previous install is still in flight (less than 10 min old), don't
@@ -30,7 +30,7 @@ import { join } from "node:path";
 import { compareVersions } from "compare-versions";
 import { withFileLock } from "../media-use/lib/config-lock.mjs";
 import { readConfig, writeConfig } from "../telemetry/config.js";
-import { isDevMode } from "./env.js";
+import { updateCheckDisabled } from "./updateCheck.js";
 import {
   detectInstaller,
   installInvocation,
@@ -43,11 +43,7 @@ const LOG_FILE = join(CONFIG_DIR, "auto-update.log");
 const PENDING_TIMEOUT_MS = 10 * 60 * 1000;
 
 function isAutoInstallDisabled(): boolean {
-  if (isDevMode()) return true;
-  if (process.env["CI"] === "true" || process.env["CI"] === "1") return true;
-  if (process.env["HYPERFRAMES_NO_UPDATE_CHECK"] === "1") return true;
-  if (process.env["HYPERFRAMES_NO_AUTO_INSTALL"] === "1") return true;
-  return false;
+  return updateCheckDisabled() || process.env["HYPERFRAMES_NO_AUTO_INSTALL"] === "1";
 }
 
 /** Parse a semver-ish string's major number; returns NaN for pre-releases etc. */
