@@ -30,8 +30,9 @@ export {
   applyStudioBoxSizeDraft,
   applyStudioRotation,
   applyStudioRotationDraft,
-  reapplyPositionEditsAfterSeek,
 } from "./manualEditsDom";
+
+export { reapplyPositionEditsAfterSeek } from "./manualEditsSeekReapply";
 
 export {
   captureStudioBoxSize,
