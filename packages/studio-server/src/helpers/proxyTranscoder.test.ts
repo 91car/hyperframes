@@ -487,6 +487,13 @@ describe("resolveProxy", () => {
       await flush();
     }
     await Promise.all(accepted);
+
+    // A full queue is not remembered: once there is room, the same clip transcodes.
+    const retry = resolveProxy(projectDir, sourcePaths.at(-1)!);
+    await flush();
+    expect(calls).toHaveLength(accepted.length + 1);
+    succeed(calls.at(-1)!);
+    await expect(retry).resolves.toBeTruthy();
   });
 
   it("honors bounded concurrency and queue environment overrides", async () => {
@@ -625,6 +632,104 @@ describe("resolveProxy", () => {
     expect(calls).toHaveLength(2);
     succeed(calls[1]!);
     await expect(retry).resolves.toBeTruthy();
+  });
+
+  // A real ffprobe answers after a macrotask, so a failure lands after a zero wait gave up.
+  async function loadWithSlowProbe(
+    spawn: SpawnImpl,
+    ffmpegPath: () => string | undefined,
+    probe: () => Promise<unknown>,
+  ): Promise<typeof import("./proxyTranscoder.js")> {
+    vi.resetModules();
+    vi.doMock("node:child_process", () => {
+      const mocked = { spawn };
+      return { ...mocked, default: mocked };
+    });
+    vi.doMock("@hyperframes/parsers/ff-binaries", () => ({ findFfBinary: ffmpegPath }));
+    vi.doMock("./mediaMetadata.js", () => ({
+      probeMediaMetadata: () =>
+        new Promise((resolveProbe) => setTimeout(resolveProbe, 5)).then(probe),
+    }));
+    return import("./proxyTranscoder.js");
+  }
+
+  const sleep = (ms: number) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+
+  it("keeps an environment failure briefly, so an ask that stopped waiting hears it next", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const { spawn, calls } = createSpawnSpy();
+    let ffmpegPath: string | undefined;
+    const { resolveProxy, waitForProxy, ProxyWaitTimeoutError } = await loadWithSlowProbe(
+      spawn,
+      () => ffmpegPath,
+      async () => ({ kind: "video", color: { isHdr: false } }),
+    );
+    const projectDir = tmpProject();
+    const sourcePath = join(projectDir, "video.mov");
+    writeFileSync(sourcePath, "source-bytes");
+
+    await expect(waitForProxy(resolveProxy(projectDir, sourcePath), 0)).rejects.toBeInstanceOf(
+      ProxyWaitTimeoutError,
+    );
+    await sleep(30);
+    await expect(waitForProxy(resolveProxy(projectDir, sourcePath), 0)).rejects.toThrow(
+      "ffmpeg binary not found",
+    );
+
+    ffmpegPath = FFMPEG_PATH;
+    now.mockReturnValue(1_000 + 10_001);
+    const retry = resolveProxy(projectDir, sourcePath);
+    await sleep(30);
+    expect(calls).toHaveLength(1);
+    succeed(calls[0]!);
+    await expect(retry).resolves.toBeTruthy();
+    now.mockRestore();
+  });
+
+  it("remembers a failure that is not a transcode error, so it is not retried on every ask", async () => {
+    const { spawn } = createSpawnSpy();
+    const probe = vi.fn(async () => {
+      throw new Error("EBUSY: file locked");
+    });
+    const { resolveProxy, waitForProxy, ProxyWaitTimeoutError } = await loadWithSlowProbe(
+      spawn,
+      () => FFMPEG_PATH,
+      probe,
+    );
+    const projectDir = tmpProject();
+    const sourcePath = join(projectDir, "video.mov");
+    writeFileSync(sourcePath, "source-bytes");
+
+    await expect(waitForProxy(resolveProxy(projectDir, sourcePath), 0)).rejects.toBeInstanceOf(
+      ProxyWaitTimeoutError,
+    );
+    await sleep(30);
+    await expect(waitForProxy(resolveProxy(projectDir, sourcePath), 0)).rejects.toThrow("EBUSY");
+    expect(probe).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks a project's copy as in flight, and moves the mark once it lands", async () => {
+    const { spawn, calls } = createSpawnSpy();
+    const { resolveProxy, proxyActivityMark } = await loadWithSlowProbe(
+      spawn,
+      () => FFMPEG_PATH,
+      async () => ({ kind: "video", color: { isHdr: false } }),
+    );
+    const projectDir = tmpProject();
+    const otherProjectDir = tmpProject();
+    const sourcePath = join(projectDir, "video.mov");
+    writeFileSync(sourcePath, "source-bytes");
+    const before = proxyActivityMark(projectDir);
+
+    const copy = resolveProxy(projectDir, sourcePath);
+    expect(proxyActivityMark(projectDir)).toBeNull();
+    expect(proxyActivityMark(otherProjectDir)).toBe(before);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    succeed(calls[0]!);
+    await copy;
+    expect(proxyActivityMark(projectDir)).not.toBeNull();
+    expect(proxyActivityMark(projectDir)).not.toBe(before);
+    expect(proxyActivityMark(join(projectDir, "missing"))).not.toBeNull();
   });
 
   it("rejects sources outside the project before probing or spawning", async () => {
