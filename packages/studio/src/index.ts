@@ -196,6 +196,17 @@ export type { AudioMeterStripProps } from "./components/nle/AudioMeterStrip";
 export { useClipboard } from "./hooks/useClipboard";
 export type { UseClipboardOptions } from "./hooks/useClipboard";
 
+// DOM editing: the canvas session, persistence and overlay, for a host outside EditorShell.
+export { useDomEditSession } from "./hooks/useDomEditSession";
+export type { UseDomEditSessionParams } from "./hooks/useDomEditSession";
+export { usePreviewPersistence } from "./hooks/usePreviewPersistence";
+export type { UsePreviewPersistenceParams } from "./hooks/usePreviewPersistence";
+export { DomEditProvider, useDomEditSelectionContext } from "./contexts/DomEditContext";
+export { PreviewReadOnlyProvider } from "./components/editor/previewReadOnlyContext";
+export { ConnectedDomEditOverlay } from "./components/editor/ConnectedDomEditOverlay";
+export type { ConnectedDomEditOverlayProps } from "./components/editor/ConnectedDomEditOverlay";
+export type { DomEditCapabilities, DomEditSelection } from "./components/editor/domEditingTypes";
+
 export {
   playSeamTransitionLoop,
   type SeamTransitionFrameSource,
