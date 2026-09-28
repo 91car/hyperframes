@@ -30,14 +30,15 @@ import {
 import { sourceTimeAt } from "../speedRamp";
 import { createWaapiAdapter } from "./adapters/waapi";
 import {
+  isUnplayable,
   readElementPlaybackRate,
-  readElementRateSpec,
   readElementPlaybackStart,
+  readElementRateSpec,
   refreshRuntimeMediaCache,
-  resolveRuntimeMediaClipDuration,
   resolveNaturalMediaTimelineDuration,
-  type RuntimeMediaClip,
+  resolveRuntimeMediaClipDuration,
   syncRuntimeMedia,
+  type RuntimeMediaClip,
 } from "./media";
 import { handleErrorForProxy, handleMetadataForProxy, maybeProxyProactively } from "./mediaProxy";
 import { probeAndCacheElementVolume, type VolumeKeyframe } from "./mediaVolumeEnvelope.js";
@@ -4511,10 +4512,12 @@ export function initSandboxRuntimeModular(): void {
           }
         } else {
           const audioEls = document.querySelectorAll("audio[data-start]");
+          const followed = clock.audioElement();
           let foundActive = false;
-          for (const rawEl of audioEls) {
+          for (const rawEl of followed ? [followed, ...audioEls] : audioEls) {
             if (!isMediaElement(rawEl) || !rawEl.isConnected) continue;
-            if (isSilencedByHidden(rawEl)) continue;
+            if (isSilencedByHidden(rawEl) || isUnplayable(rawEl)) continue;
+            if (!rawEl.hasAttribute("src") && !rawEl.querySelector("source[src]")) continue;
             const start = resolveAbsoluteMediaStartSeconds(rawEl);
             const durAttr = parseStrictFiniteTimingNumber(rawEl.dataset.duration);
             const end = durAttr != null && durAttr > 0 ? start + durAttr : Infinity;
@@ -4528,7 +4531,7 @@ export function initSandboxRuntimeModular(): void {
                   rate: readElementRateSpec(rawEl),
                 });
                 foundActive = true;
-              } else if (!rawEl.error && rawEl.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+              } else if (rawEl.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
                 // Audio is buffering — freeze visuals at last known position
                 // instead of falling through to monotonic (which runs ahead).
                 clock.attachAudioSource({ currentTimeSeconds: state.currentTime });
