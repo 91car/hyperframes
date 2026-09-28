@@ -1236,10 +1236,12 @@ Studio installs and which of the two installed them, and system info — includi
 environment fingerprint: OS, kernel string, CPU and memory shape, sandbox
 runtime such as gVisor or Docker, and the _name_ of a coding agent driving the
 CLI when one is detected (`claude_code`, `codex`, `cursor`). That name is
-inferred from which well-known environment variables exist; their values are
-never read. Local paths and URL query strings are redacted from error and
+inferred from which well-known environment variables exist. Local paths and URL query strings are redacted from error and
 checkpoint messages. Project names, video content, and environment variable
-values are never collected.
+values are never collected, except short self-identifying names: `AGENT`,
+`AI_AGENT` and `TERM_PROGRAM` (filtered to short slugs), and `HYPERFRAMES_CLIENT`,
+the `<app>/<version>/<channel>` tag an app that launches the CLI sets, sent as
+`client` so reports from that app can be told apart.
 
 Nothing personally identifying is collected until you sign in. When you run
 `hyperframes auth login`, your HeyGen account email — or username, if the
