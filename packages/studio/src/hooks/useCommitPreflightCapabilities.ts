@@ -51,8 +51,8 @@ const MANUAL_FLAGS = [
 /** Null when the commit would go through; "" while the check is still running. */
 function refusal(preflight: CommitPreflight | null, check: keyof CommitPreflight): string | null {
   const outcome = preflight?.[check];
-  if (outcome?.status === "persisted") return null;
-  return outcome ? GSAP_EDIT_BLOCK_COPY[outcome.reason] : "";
+  if (!outcome) return "";
+  return outcome.status === "blocked" ? GSAP_EDIT_BLOCK_COPY[outcome.reason] : null;
 }
 
 /** Closes each manual flag whose commit Studio would refuse, and says why. */

@@ -43,7 +43,8 @@ export type GsapEditOutcome =
        */
       ownsDragOffset?: boolean;
     }
-  | { status: "blocked"; reason: GsapEditBlockReason; detail?: GsapEditBlockDetail };
+  | { status: "blocked"; reason: GsapEditBlockReason; detail?: GsapEditBlockDetail }
+  | { status: "element-offset" };
 
 export const GSAP_EDIT_BLOCK_COPY: Record<GsapEditBlockReason, string> = {
   "no-selector": "This layer needs a stable selector before Studio can save the edit.",
