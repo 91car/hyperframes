@@ -434,6 +434,7 @@ export function useTimelineProviderState({
     marqueeRect,
     laneGapStrips,
     dropPreview: assetDrop.dropPreview,
+    acceptsMediaDrop: !!(onFileDrop || onAssetDrop),
     theme,
     showAudioEffects,
     displayTrackOrder: displayLayout.displayTrackOrder,
