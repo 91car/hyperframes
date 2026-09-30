@@ -46,7 +46,7 @@ import {
 } from "../helpers/finiteMutation.js";
 import type { GsapAnimation } from "@hyperframes/parsers";
 import { classifyPropertyGroup } from "@hyperframes/parsers/gsap-constants";
-import { parseGsapScriptAcorn } from "@hyperframes/parsers/gsap-parser-acorn";
+import { findTimelineScript, parseGsapScriptAcorn } from "@hyperframes/parsers/gsap-parser-acorn";
 import { unrollComputedTimeline } from "@hyperframes/parsers";
 import {
   updateAnimationInScript,
@@ -75,6 +75,7 @@ import {
   scalePositionsInScript,
   dedupePositionWritesInScript,
   syncPositionHoldsBeforeKeyframes,
+  clipQueryRoot,
 } from "@hyperframes/parsers/gsap-writer-acorn";
 import {
   removeElementFromHtml,
@@ -674,6 +675,7 @@ function updateReferences(projectDir: string, oldPath: string, newPath: string):
 function extractGsapScriptBlock(html: string): {
   scriptText: string;
   document: Document;
+  root: ParentNode;
   replaceScript: (newText: string) => string;
 } | null {
   const { document } = parseHTML(ensureHfIds(html));
@@ -683,24 +685,17 @@ function extractGsapScriptBlock(html: string): {
       Array.from(tmpl.querySelectorAll("script:not([src])")),
     ),
   ];
-  for (const script of scripts) {
-    const content = script.textContent || "";
-    if (
-      content.includes("gsap.timeline") ||
-      content.includes(".set(") ||
-      content.includes(".to(")
-    ) {
-      return {
-        scriptText: content,
-        document,
-        replaceScript(newText: string): string {
-          script.textContent = newText;
-          return document.toString();
-        },
-      };
-    }
-  }
-  return null;
+  const script = findTimelineScript(scripts);
+  if (!script) return null;
+  return {
+    scriptText: script.textContent || "",
+    document,
+    root: clipQueryRoot(script),
+    replaceScript(newText: string): string {
+      script.textContent = newText;
+      return document.toString();
+    },
+  };
 }
 
 /**
@@ -1705,13 +1700,13 @@ function executeGsapMutationAcorn(
     case "shift-positions": {
       const { targetSelector, delta } = body;
       if (!targetSelector || !Number.isFinite(delta) || delta === 0) return block.scriptText;
-      return shiftPositionsInScript(block.scriptText, targetSelector, delta);
+      return shiftPositionsInScript(block.scriptText, targetSelector, delta, block.root);
     }
     case "shift-positions-batch": {
       let script = block.scriptText;
       for (const s of body.shifts) {
         if (!s.targetSelector || !Number.isFinite(s.delta) || s.delta === 0) continue;
-        script = shiftPositionsInScript(script, s.targetSelector, s.delta);
+        script = shiftPositionsInScript(script, s.targetSelector, s.delta, block.root);
       }
       return script;
     }
@@ -1735,6 +1730,7 @@ function executeGsapMutationAcorn(
         oldDuration,
         newStart,
         newDuration,
+        block.root,
       );
     }
     default:
@@ -2077,14 +2073,14 @@ async function executeGsapMutationRecast(
       const { targetSelector, delta } = body;
       if (!targetSelector || !Number.isFinite(delta) || delta === 0) return block.scriptText;
       const { shiftPositionsInScript } = parser;
-      return shiftPositionsInScript(block.scriptText, targetSelector, delta);
+      return shiftPositionsInScript(block.scriptText, targetSelector, delta, block.root);
     }
     case "shift-positions-batch": {
       const { shiftPositionsInScript } = parser;
       let script = block.scriptText;
       for (const s of body.shifts) {
         if (!s.targetSelector || !Number.isFinite(s.delta) || s.delta === 0) continue;
-        script = shiftPositionsInScript(script, s.targetSelector, s.delta);
+        script = shiftPositionsInScript(script, s.targetSelector, s.delta, block.root);
       }
       return script;
     }
@@ -2109,6 +2105,7 @@ async function executeGsapMutationRecast(
         oldDuration,
         newStart,
         newDuration,
+        block.root,
       );
     }
     default:
