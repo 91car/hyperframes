@@ -247,6 +247,53 @@ describe("track-area breathing pad y-math", () => {
   });
 });
 
+describe("host track padding", () => {
+  const geometry = createTimelineRowGeometry([0, 1, 2], baseRows(3), { top: 0, bottom: TRACK_H });
+  // Row 1 with no top pad, but still row 0 if any reader keeps the default pad.
+  const yInRow1 = RULER_H + TRACK_H + 10;
+
+  it("moves the first row up and sizes the canvas from the host pads", () => {
+    expect(geometry.getRowTop(0)).toBe(RULER_H);
+    expect(getTimelineRowTop(1, geometry.rowHeights)).toBe(RULER_H + TRACK_H);
+    expect(getTimelineCanvasHeight(geometry.rowHeights)).toBe(RULER_H + 4 * TRACK_H);
+  });
+
+  it("maps a drag pointer y to the row under it", () => {
+    expect(Math.floor(geometry.getRowFromY(yInRow1))).toBe(1);
+    expect(Math.floor(getTimelineRowFromY(yInRow1, geometry.rowHeights))).toBe(1);
+  });
+
+  it("drops onto the row under the pointer, and a new track in the bottom pad", () => {
+    const drop = {
+      rectLeft: 0,
+      rectTop: 0,
+      scrollLeft: 0,
+      scrollTop: 0,
+      contentOrigin: GUTTER,
+      pixelsPerSecond: 100,
+      rowHeights: geometry.rowHeights,
+      trackOrder: [0, 1, 2],
+    };
+    expect(resolveTimelineAssetDrop(drop, GUTTER, yInRow1).track).toBe(1);
+    const inBottomPad = RULER_H + 3 * TRACK_H + TRACK_H / 2;
+    expect(resolveTimelineAssetDrop(drop, GUTTER, inBottomPad).track).toBe(3);
+  });
+
+  it("clamps a negative pad to 0 and replaces a non-finite one with the default", () => {
+    const odd = createTimelineRowGeometry([0], baseRows(1), { top: -20, bottom: Number.NaN });
+    expect(odd.padding).toEqual({ top: 0, bottom: TRACKS_BOTTOM_PAD });
+    expect(odd.getRowTop(0)).toBe(RULER_H);
+    expect(odd.canvasHeight).toBe(RULER_H + TRACK_H + TRACKS_BOTTOM_PAD);
+    const infinite = createTimelineRowGeometry([0], baseRows(1), { top: Infinity });
+    expect(infinite.padding.top).toBe(TRACKS_TOP_PAD);
+  });
+
+  it("keeps the default pads when a host passes none", () => {
+    const defaults = createTimelineRowGeometry([0], baseRows(1));
+    expect(defaults.padding).toEqual({ top: TRACKS_TOP_PAD, bottom: TRACKS_BOTTOM_PAD });
+  });
+});
+
 describe("getTimelineScrubTime", () => {
   const at = (clientX: number, duration = 10) =>
     getTimelineScrubTime({
