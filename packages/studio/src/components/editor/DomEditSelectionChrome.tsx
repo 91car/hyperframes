@@ -59,6 +59,7 @@ interface DomEditGroupChromeProps {
   groupOverlayItems: GroupOverlayItem[];
   groupBounds: OverlayRect;
   allowCanvasMovement: boolean;
+  allowBodyDrag: boolean;
   groupCanMove: boolean;
   gestures: GestureHandlers;
   onBoxMouseDown: (e: React.MouseEvent) => void;
@@ -71,6 +72,7 @@ export function DomEditGroupChrome({
   groupOverlayItems,
   groupBounds,
   allowCanvasMovement,
+  allowBodyDrag,
   groupCanMove,
   gestures,
   onBoxMouseDown,
@@ -100,10 +102,10 @@ export function DomEditGroupChrome({
           top: groupBounds.top,
           width: groupBounds.width,
           height: groupBounds.height,
-          cursor: canManipulate && groupCanMove ? "move" : "default",
+          cursor: !allowBodyDrag ? undefined : canManipulate && groupCanMove ? "move" : "default",
         }}
         onPointerDown={(e) => {
-          if (!canManipulate || e.shiftKey) return;
+          if (!canManipulate || e.shiftKey || !allowBodyDrag) return;
           gestures.startGroupDrag(e);
         }}
         onMouseDown={onBoxMouseDown}
@@ -117,6 +119,7 @@ interface DomEditSelectionChromeProps {
   selection: DomEditSelection;
   overlayRect: OverlayRect;
   allowCanvasMovement: boolean;
+  allowBodyDrag: boolean;
   cropOutlineInsetPx?: { top: number; right: number; bottom: number; left: number };
   boxRef: RefObject<HTMLDivElement | null>;
   boxChromeClass: string;
@@ -145,6 +148,7 @@ export function DomEditSelectionChrome({
   selection,
   overlayRect,
   allowCanvasMovement,
+  allowBodyDrag,
   cropOutlineInsetPx,
   boxRef,
   boxChromeClass,
@@ -197,8 +201,11 @@ export function DomEditSelectionChrome({
             width: overlayRect.width,
             height: overlayRect.height,
             clipPath: boxClipPath,
-            cursor:
-              canManipulate && selection.capabilities.canApplyManualOffset ? "move" : "default",
+            cursor: !allowBodyDrag
+              ? undefined
+              : canManipulate && selection.capabilities.canApplyManualOffset
+                ? "move"
+                : "default",
           }}
           onPointerDown={(e) => {
             // A second press opens the element's text for editing, and must be
@@ -211,7 +218,7 @@ export function DomEditSelectionChrome({
               e.stopPropagation();
               return;
             }
-            if (!canManipulate || e.shiftKey) return;
+            if (!allowBodyDrag || !canManipulate || e.shiftKey) return;
             if (selection.capabilities.canApplyManualOffset) {
               gestures.startGesture("drag", e);
               return;
