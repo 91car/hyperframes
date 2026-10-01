@@ -210,6 +210,57 @@ describe("useDomGeometryCommit, from the package entry", () => {
     unmount();
   });
 
+  it("refuses a CSS move GSAP has folded into its x/y, writes nothing, and hands the translate back", async () => {
+    const calls = stubPatchServer();
+    const { element, hook, unmount } = renderHost();
+    element.style.setProperty("translate", "none");
+    Object.assign(element, { _gsap: { renderTransform: () => {}, x: "94px", y: "66px" } });
+    const set = vi.fn();
+    Object.assign(element.ownerDocument.defaultView!, { gsap: { set } });
+
+    await expect(
+      hook().commitPathOffset(
+        makeSelection("card", element),
+        { x: 1, y: 2 },
+        { plainTranslate: true },
+      ),
+    ).rejects.toThrow(/animation took over/);
+    delete (element.ownerDocument.defaultView as { gsap?: unknown }).gsap;
+    expect(calls.patches).toEqual([]);
+    expect(set).toHaveBeenCalledWith(element, { x: 0, y: 0, xPercent: 0, yPercent: 0 });
+    unmount();
+  });
+
+  it("saves a CSS move GSAP has only parsed, with nothing folded into its x/y", async () => {
+    const calls = stubPatchServer();
+    const { element, hook, unmount } = renderHost();
+    Object.assign(element, {
+      _gsap: { renderTransform: () => {}, x: "0px", y: "0px", xPercent: 0 },
+    });
+
+    await expect(
+      hook().commitPathOffset(
+        makeSelection("card", element),
+        { x: 1, y: 2 },
+        { plainTranslate: true },
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(calls.patches).toHaveLength(1);
+    unmount();
+  });
+
+  it("leaves a later move's translate alone when an earlier move's save fails", async () => {
+    stubPatchServer(500);
+    const { element, hook, unmount } = renderHost();
+    element.style.setProperty("translate", "40px 30px");
+
+    const saving = hook().commitPathOffset(makeSelection("card", element), { x: 1, y: 2 });
+    element.style.setProperty("translate", "7px 8px");
+    await expect(saving).rejects.toThrow();
+    expect(element.style.getPropertyValue("translate")).toBe("7px 8px");
+    unmount();
+  });
+
   it("keeps the same commits across renders, so the overlay's handlers stay put", () => {
     stubServer();
     const { hook, rerender, unmount } = renderHost();

@@ -447,6 +447,13 @@ export function gsapWritesPosition(el: Element): boolean {
   return !!cache?.renderTransform || gsapWritesChannels(el, MOVE_CHANNELS);
 }
 
+export function gsapHoldsTranslate(el: Element): boolean {
+  const cache = (el as { _gsap?: Record<string, unknown> })._gsap;
+  return ["x", "y", "xPercent", "yPercent"].some(
+    (key) => !!Number.parseFloat(String(cache?.[key])),
+  );
+}
+
 const BOX_CHANNELS = [
   ...BOX_SIZE_STYLE_PROPS.map((prop) =>
     prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()),

@@ -28,6 +28,7 @@ import type {
 import { setElementGsapPosition } from "../utils/elementGsap";
 import { logResize, logResizeSettle } from "../utils/resizeDebug";
 import type { DomEditGroupPathOffsetCommit } from "../components/editor/DomEditOverlay";
+import type { MoveCommitOptions } from "../components/editor/domEditOverlayGestures";
 import { runGestureTransaction } from "./gestureTransaction";
 import {
   gsapWritesBox,
@@ -37,7 +38,7 @@ import {
 } from "./gsapRuntimeKeyframes";
 import { assertGsapEditPersisted, saveMove } from "./gsapEditOutcome";
 import type { GsapAnimationFetchOptions } from "./useGsapAnimationFetchFallback";
-import type { ElementOffsetStagerDeps } from "./elementOffsetStager";
+import { refuseGsapTakeover, type ElementOffsetStagerDeps } from "./elementOffsetStager";
 import {
   prepareCropResize,
   saveCropResize,
@@ -81,6 +82,7 @@ export interface UseGsapAwareEditingParams {
   stageElementPositionOffset: (
     selection: DomEditSelection,
     next: { x: number; y: number },
+    plainTranslate: boolean,
     coalesceKey?: string,
   ) => { save: () => Promise<void>; rollback: () => void };
   handleDomBoxSizeCommit: (
@@ -153,10 +155,11 @@ export function useGsapAwareEditing({
     async (
       selection: DomEditSelection,
       next: { x: number; y: number },
-      modifiers?: { altKey?: boolean },
+      modifiers?: MoveCommitOptions,
     ) => {
-      if (!gsapWritesPosition(selection.element))
-        return stageElementPositionOffset(selection, next).save();
+      // A gesture and the panel carry their route; webmcp's moveTo decides here.
+      if (modifiers?.plainTranslate ?? !gsapWritesPosition(selection.element))
+        return stageElementPositionOffset(selection, next, true).save();
       if (gsapCommitMutation) {
         try {
           const ownedAnimations = getGsapAnimationsForSelection(selection);
@@ -172,7 +175,7 @@ export function useGsapAwareEditing({
             makeFetchFallback(selection),
             modifiers,
           );
-          await saveMove(outcome, () => stageElementPositionOffset(selection, next).save());
+          await saveMove(outcome, () => stageElementPositionOffset(selection, next, false).save());
         } catch (error) {
           trackGsapInteractionFailure(error, selection, "drag", "Move animated layer");
           throw error;
@@ -199,13 +202,9 @@ export function useGsapAwareEditing({
       // it survives the N sequential server round-trips) onto each commit —
       // otherwise each member records its own entry and it takes N presses to undo.
       const coalesceKey = `group-drag:${++groupDragCommitCounter}`;
-      // Members are written one at a time, and a write that re-renders the preview
-      // re-runs the whole script — which still holds the OLD position of every
-      // member not yet written. Those members snap back to where they started and
-      // stay there until their own write lands, which is the single element seen
-      // jumping mid-commit while the rest of the group sat still. The drafted
-      // positions are already on screen, so holding the render until the last
-      // member has been written costs nothing and never shows a half-moved group.
+      // Members are written one at a time, and a re-render re-runs the script with the OLD
+      // position of every member not yet written, so they snap back until their own write
+      // lands. The drafts are already on screen: hold the render until the last member.
       let renderOnCommit = false;
       const previewFallbackLatch = { pending: false };
       const withGroupOptions = (options: CommitMutationOptions): CommitMutationOptions => ({
@@ -238,17 +237,17 @@ export function useGsapAwareEditing({
         return Promise.resolve();
       };
       const preflightAnimations = new Map<DomEditSelection, GsapAnimation[]>();
-      const offsetMembers = new Set<DomEditSelection>();
-      // Editability is user-atomic: prove every member can be written before
-      // the first source mutation. Network failures after this point retain the
-      // existing multi-request semantics, but a blocked member can never leave
-      // earlier siblings partially moved.
-      // Every member reads the same file, and a preflight writes nothing — so run
-      // them together. The parse layer shares one in-flight request per file, which
-      // turns N sequential round trips into one.
+      // Members saved on themselves, each with its route: true for its CSS translate.
+      const offsetMembers = new Map<DomEditSelection, boolean>();
+      // Editability is user-atomic: prove every member can be written before the first source
+      // mutation, so a blocked member never leaves earlier siblings partially moved. Preflights
+      // write nothing and share one in-flight parse per file, so they run together.
       const preflightResults = await Promise.allSettled(
-        updates.map(async ({ selection }) => {
-          if (!gsapWritesPosition(selection.element)) return void offsetMembers.add(selection);
+        updates.map(async ({ selection, plainTranslate }) => {
+          if (plainTranslate ?? !gsapWritesPosition(selection.element)) {
+            refuseGsapTakeover(selection.element, showToast);
+            return void offsetMembers.set(selection, true);
+          }
           const animations = await makeFetchFallback(selection, { failOnFetchError: true })();
           preflightAnimations.set(selection, animations);
           const outcome = await tryGsapDragIntercept(
@@ -260,7 +259,7 @@ export function useGsapAwareEditing({
             undefined,
             { preflightOnly: true, group: true },
           );
-          if (outcome.status === "element-offset") offsetMembers.add(selection);
+          if (outcome.status === "element-offset") offsetMembers.set(selection, false);
           assertGsapEditPersisted(outcome);
         }),
       );
@@ -279,8 +278,9 @@ export function useGsapAwareEditing({
       );
       for (const [index, { selection, next }] of updates.entries()) {
         renderOnCommit = index === lastScriptWrite;
-        if (offsetMembers.has(selection)) {
-          await stageElementPositionOffset(selection, next, coalesceKey).save();
+        const plain = offsetMembers.get(selection);
+        if (plain !== undefined) {
+          await stageElementPositionOffset(selection, next, plain, coalesceKey).save();
           continue;
         }
         try {
@@ -320,6 +320,7 @@ export function useGsapAwareEditing({
       makeFetchFallback,
       trackGsapInteractionFailure,
       stageElementPositionOffset,
+      showToast,
     ],
   );
 
@@ -415,7 +416,8 @@ export function useGsapAwareEditing({
                 );
                 // Saved after the size, under its undo key, so the two are one step.
                 await saveMove(dragOutcome, async () => {
-                  anchorMove = stageElementPositionOffset(selection, offset, coalesceKey);
+                  const plain = !gsapWritesPosition(selection.element);
+                  anchorMove = stageElementPositionOffset(selection, offset, plain, coalesceKey);
                 });
               }
               logResizeSettle(selection.element, ownsDragOffset ? "gsap-scale" : "gsap-size");
