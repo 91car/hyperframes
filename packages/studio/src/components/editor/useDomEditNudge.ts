@@ -55,6 +55,7 @@ export interface UseDomEditNudgeParams {
   groupGestureRef: RefObject<GroupGestureState | null>;
   blockedMoveRef: RefObject<BlockedMoveState | null>;
   onManualDragStartRef: RefObject<(() => void) | undefined>;
+  onBlockedMoveRef: RefObject<(selection: DomEditSelection, reason?: string) => void>;
   onPathOffsetCommitRef: RefObject<
     (
       s: DomEditSelection,
@@ -179,7 +180,7 @@ export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: ()
   // Build drag members for the current target set — the same member snapshot a
   // pointer drag starts from (startGesture / startGroupDrag), so the nudge
   // commit converts offsets → GSAP x/y with identical math.
-  const beginSession = (): NudgeSession | null => {
+  const beginSession = (event: KeyboardEvent): NudgeSession | "refused" | null => {
     const p = paramsRef.current;
     const groupItems = p.groupOverlayItemsRef.current;
     const isGroup = groupItems.length > 1;
@@ -192,7 +193,8 @@ export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: ()
       const result = createManualOffsetDragMember({ ...target, gesture: "nudge" });
       if (!result.ok) {
         restoreManualOffsetDragMembers(members);
-        return null;
+        if (!event.repeat) p.onBlockedMoveRef.current(result.selection, result.reason);
+        return "refused";
       }
       members.push(result.member);
     }
@@ -207,7 +209,8 @@ export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: ()
     if (shouldIgnoreNudgeKey(p, event)) return;
     const delta = resolveCanvasNudgeDelta(event);
     if (!delta) return;
-    const session = sessionRef.current ?? beginSession();
+    const session = sessionRef.current ?? beginSession(event);
+    if (session === "refused") return void event.preventDefault();
     if (!session) return;
     sessionRef.current = session;
     event.preventDefault();
