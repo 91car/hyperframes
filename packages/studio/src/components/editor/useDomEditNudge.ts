@@ -9,6 +9,10 @@ import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { ownsPlainKeys } from "../../utils/typingTarget";
 import { acquireCanvasNudgeKeys } from "../../utils/canvasNudgeGate";
+import {
+  addStudioPendingEditFlushListener,
+  trackStudioPendingEdit,
+} from "../../utils/studioPendingEdits";
 import type { DomEditSelection } from "./domEditing";
 import {
   type GroupOverlayItem,
@@ -43,6 +47,7 @@ interface NudgeSession {
   /** Accumulated delta of the burst, in composition px. */
   accum: { x: number; y: number };
   timer: ReturnType<typeof setTimeout> | null;
+  endPendingEdit: (saved?: Promise<unknown>) => void;
 }
 
 export interface UseDomEditNudgeParams {
@@ -143,31 +148,37 @@ export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: ()
   // Commit the pending burst: one source write per burst = one undo entry.
   // Mirrors the drag's onPointerUp — same commit callbacks, same failure
   // restore, same member teardown.
-  const commitSession = () => {
+  const commitSession = (): Promise<unknown> | undefined => {
     const session = sessionRef.current;
-    if (!session) return;
+    if (!session) return undefined;
     sessionRef.current = null;
     if (session.timer) clearTimeout(session.timer);
-    const updates: DomEditGroupPathOffsetCommit[] = session.members.map((member) => ({
-      selection: member.selection,
-      next: applyManualOffsetNudgeCommit(member, session.accum),
-      plainTranslate: member.plainTranslate,
-    }));
     const p = paramsRef.current;
-    const commit = session.isGroup
-      ? p.onGroupPathOffsetCommitRef.current(updates)
-      : p.onPathOffsetCommitRef.current(updates[0].selection, updates[0].next, {
-          plainTranslate: updates[0].plainTranslate,
-        });
-    void Promise.resolve(commit)
-      .catch(() => {
-        for (const member of session.members) {
-          if (isStudioManualEditGestureCurrent(member.element, member.gestureToken)) {
-            restoreStudioPathOffset(member.element, member.initialPathOffset);
+    let saved: Promise<unknown> | undefined;
+    try {
+      const updates: DomEditGroupPathOffsetCommit[] = session.members.map((member) => ({
+        selection: member.selection,
+        next: applyManualOffsetNudgeCommit(member, session.accum),
+        plainTranslate: member.plainTranslate,
+      }));
+      const commit = session.isGroup
+        ? p.onGroupPathOffsetCommitRef.current(updates)
+        : p.onPathOffsetCommitRef.current(updates[0].selection, updates[0].next, {
+            plainTranslate: updates[0].plainTranslate,
+          });
+      saved = Promise.resolve(commit)
+        .catch(() => {
+          for (const member of session.members) {
+            if (isStudioManualEditGestureCurrent(member.element, member.gestureToken)) {
+              restoreStudioPathOffset(member.element, member.initialPathOffset);
+            }
           }
-        }
-      })
-      .finally(() => endManualOffsetDragMembers(session.members));
+        })
+        .finally(() => endManualOffsetDragMembers(session.members));
+      return saved;
+    } finally {
+      session.endPendingEdit(saved);
+    }
   };
   const commitSessionRef = useRef(commitSession);
   commitSessionRef.current = commitSession;
@@ -179,6 +190,7 @@ export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: ()
     if (session.timer) clearTimeout(session.timer);
     restoreManualOffsetDragMembers(session.members);
     endManualOffsetDragMembers(session.members);
+    session.endPendingEdit();
   }, [params.allowCanvasMovement]);
 
   // Build drag members for the current target set — the same member snapshot a
@@ -205,7 +217,9 @@ export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: ()
     if (members.length === 0) return null;
     // Same side effect a drag start has (pauses preview playback).
     p.onManualDragStartRef.current?.();
-    return { members, isGroup, accum: { x: 0, y: 0 }, timer: null };
+    let endPendingEdit: NudgeSession["endPendingEdit"] = () => {};
+    trackStudioPendingEdit(new Promise<unknown>((resolve) => (endPendingEdit = resolve)));
+    return { members, isGroup, accum: { x: 0, y: 0 }, timer: null, endPendingEdit };
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -231,8 +245,12 @@ export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: ()
     // Capture, like the other app-level key handlers, so a focused panel
     // can't swallow the nudge before it reaches us.
     window.addEventListener("keydown", listener, true);
+    const stopCommitOnUndoDrain = addStudioPendingEditFlushListener(() =>
+      commitSessionRef.current(),
+    );
     return () => {
       window.removeEventListener("keydown", listener, true);
+      stopCommitOnUndoDrain();
       commitSessionRef.current();
     };
   });
@@ -245,7 +263,7 @@ export function useDomEditNudge(params: UseDomEditNudgeParams): { flushNudge: ()
   const selectionKey = selectionIdentityKey(params.selection);
   const groupSelectionsKey = groupSelectionsIdentityKey(params.groupSelections);
   // eslint-disable-next-line no-restricted-syntax
-  useEffect(() => () => commitSessionRef.current(), [selectionKey, groupSelectionsKey]);
+  useEffect(() => () => void commitSessionRef.current(), [selectionKey, groupSelectionsKey]);
 
   // Claim the arrow keys from the playback frame-step while the selection is
   // nudgeable (see canvasNudgeGate — listener order is mount-dependent, so
