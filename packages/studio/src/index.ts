@@ -12,6 +12,10 @@ export type { ShortcutHint, ShortcutSection } from "./player/components/studioSh
 export { CompositionBreadcrumb } from "./components/nle/CompositionBreadcrumb";
 export type { CompositionLevel } from "./components/nle/CompositionBreadcrumb";
 export { useCompositionStack } from "./components/nle/useCompositionStack";
+export { Dock } from "./components/dock/Dock";
+export { useDockLayoutStore } from "./components/dock/dockLayoutStore";
+export type { DockController } from "./components/dock/dockLayoutStore";
+export type { PanelId } from "./components/dock/panelRegistry";
 
 // Player (preview, timeline, playback controls)
 export {
