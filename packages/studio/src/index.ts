@@ -240,3 +240,10 @@ export type { MarqueeGestures, MarqueeGesturesDeps } from "./components/editor/m
 export { MarqueeOverlay } from "./components/editor/MarqueeOverlay";
 export type { MarqueeOverlayProps } from "./components/editor/MarqueeOverlay";
 export type { Rect as MarqueeRect } from "./utils/marqueeGeometry";
+
+export { buildStudioTools } from "./webmcp/useStudioAgentTools";
+export type { StudioAgentToolsDeps } from "./webmcp/useStudioAgentTools";
+export { collectStudioLookScene } from "./webmcp/tools/lookTools";
+export type { StudioLookSnapshot } from "./webmcp/tools/lookTools";
+export type { ModelContextTool } from "./webmcp/types";
+export type { ToolResult } from "./webmcp/toolResult";
