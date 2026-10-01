@@ -18,6 +18,10 @@ export const accurate = (e) =>
   !e.unsettled &&
   !e.renderError &&
   e.undo === true &&
+  // A pass/fail value, so an unmeasured drag fails; base entries from before the metric hold none.
+  e.teleport !== false &&
+  // A text case's edit opened, and its word saved and shown (and a word selected, for select).
+  e.text !== false &&
   GATED_PX.every((m) => !(e[m] > LIMIT_PX));
 
 /** Cases whose verdict here differs from the base branch, either way: each is re-run twice before the gate. */
@@ -25,25 +29,61 @@ export const flipped = (base, results) =>
   results.filter((r) => accurate(base.cases[r.id]) !== accurate(entry(r))).map((r) => r.id);
 
 const summary = (e) =>
-  e.error ? "error" : `${GATED_PX.map((m) => `${m} ${e[m] ?? "-"}`).join(", ")}, undo ${e.undo}`;
+  e.error
+    ? "error"
+    : `${GATED_PX.map((m) => `${m} ${e[m] ?? "-"}`).join(", ")}, undo ${e.undo}, teleport ${e.teleport ?? "-"}`;
+
+/** The gate's verdict on one case's runs: it passes when fewer than half fail. */
+const passes = (entries) => entries.filter((e) => !accurate(e)).length * 2 < entries.length;
+
+/** One run per case that agrees with the gate's verdict, so a banked baseline.json matches the gate. */
+export function bankable(runs) {
+  const byId = Map.groupBy(runs, (r) => r.id);
+  return [...byId.values()].map((rs) => {
+    const verdict = passes(rs.map(entry));
+    return rs.find((r) => accurate(entry(r)) === verdict);
+  });
+}
+
+/**
+ * Cases a real Studio race flips run to run, with the PR fixing it: measured and listed every run, never gated.
+ * The fixing PR deletes its own ids here and re-banks them in the same PR.
+ */
+export const QUARANTINED = {
+  "sequndo-none-center-r0-nested-z100": "#4853",
+  "sequndo-none-center-r0-root-z100": "#4853",
+  "sequndo-none-pct-r0-nested-z100": "#4853",
+  "sequndo-none-pct-r0-root-z100": "#4853",
+  "sequndo-none-px-r0-nested-z100": "#4853",
+  "sequndo-none-px-r0-root-z100": "#4853",
+  "seqnudge-none-pct-r0-nested-z100": "#4857",
+  "seqnudge-none-pct-r0-root-z100": "#4857",
+  "seqrepeat-none-px-r0-nested-z100": "part C (#4807 stack)",
+};
 
 /** Every run of every case: each shard's run plus the re-runs of the cases it flipped. */
 // fallow-ignore-next-line complexity
-export function gate(base, head, runs) {
+export function gate(base, head, runs, quarantine = QUARANTINED) {
   const seen = new Map();
   for (const r of runs) seen.set(r.id, [...(seen.get(r.id) ?? []), entry(r)]);
-  const cases = [...seen].map(([id, entries]) => {
-    const fails = entries.filter((e) => !accurate(e)).length;
+  const all = [...seen].map(([id, entries]) => {
     return {
       id,
       entries,
-      passed: fails * 2 < entries.length,
+      passed: passes(entries),
       basePassed: accurate(base.cases[id]),
     };
   });
+  const cases = all.filter((c) => !Object.hasOwn(quarantine, c.id));
   const passing = cases.filter((c) => c.passed);
   const result = {
-    basePassing: Object.values(base.cases).filter(accurate).length,
+    quarantined: Object.entries(quarantine).map(([id, fixer]) => {
+      const c = all.find((x) => x.id === id);
+      return { id, fixer, passed: c?.passed ?? null, runs: c?.entries.map(accurate) ?? [] };
+    }),
+    basePassing: Object.entries(base.cases).filter(
+      ([id, e]) => !Object.hasOwn(quarantine, id) && accurate(e),
+    ).length,
     headPassing: passing.length,
     regressed: cases.filter((c) => c.basePassed && !c.passed).map((c) => c.id),
     unstable: cases
@@ -90,6 +130,12 @@ export function comment(g) {
     ...list("Not banked (commit the artifact's baseline.json)", g.unbanked),
     ...list("Marked passing in baseline.json but failing", g.overclaimed),
     ...list("In the base grid but not run", g.missing),
+    `**Quarantined, measured but not gated** (${g.quarantined.length})`,
+    ...g.quarantined.map(
+      (q) =>
+        `- ${q.id} (fixed by ${q.fixer}): ${q.runs.map((ok) => (ok ? "pass" : "fail")).join(" / ") || "not run"}${q.passed === null ? "" : q.passed ? ", passes" : ", fails"}`,
+    ),
+    "",
     ...(g.unstable.length
       ? [
           `**Unstable** (${g.unstable.length})`,
@@ -121,9 +167,13 @@ function main([command, basePath, ...rest]) {
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, "comment.md"), comment(g));
   writeFileSync(join(out, "gate.json"), JSON.stringify(g, null, 1));
-  // The first run of every shard, as a baseline.json to commit when cases newly pass.
-  const firsts = runs.filter((r) => !r.meta.rerun).flatMap((r) => r.cases);
-  writeReport(out, { ...runs[0].meta, grid: "full (CI)" }, firsts, 0);
+  // A baseline.json to commit when cases newly pass.
+  writeReport(
+    out,
+    { ...runs[0].meta, grid: "full (CI)" },
+    bankable(runs.flatMap((r) => r.cases)),
+    0,
+  );
   console.log(comment(g));
   return g.ok ? 0 : 1;
 }

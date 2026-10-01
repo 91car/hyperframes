@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { accurate, flipped, gate } from "./ratchet.mjs";
+import { accurate, bankable, comment, flipped, gate, QUARANTINED } from "./ratchet.mjs";
+import { entry, score } from "./report.mjs";
+import { scoreTeleport } from "./teleport.mjs";
 
 const good = {
   tracking: 0.1,
@@ -41,13 +43,60 @@ describe("accurate", () => {
     expect(accurate({ ...good, unsettled: ["committed"] })).toBe(false);
     expect(accurate({ ...good, render: null, renderError: true })).toBe(false);
     expect(accurate({ ...good, undo: false })).toBe(false);
+    expect(accurate({ ...good, teleport: false, teleportPx: null })).toBe(false);
+    expect(accurate({ ...good, teleport: true })).toBe(true);
+    expect(accurate({ ...good, text: false })).toBe(false);
+    expect(accurate({ ...good, text: true })).toBe(true);
     expect(accurate({ pass: false, error: true })).toBe(false);
     expect(accurate(undefined)).toBe(false);
   });
 });
 
+describe("quarantine", () => {
+  const base = baseline({ a: good, b: good });
+  const q = { a: "#1234" };
+
+  it("measures a quarantined case but never fails the gate on it, while any other case still can", () => {
+    const failing = [run("a", 9), run("a", 9), run("a", 9), run("b")];
+    expect(gate(base, base, failing, q)).toMatchObject({ regressed: [], ok: true });
+    expect(gate(base, base, failing, {})).toMatchObject({ regressed: ["a"], ok: false });
+    const fresh = baseline({});
+    expect(gate(fresh, fresh, [run("a"), run("b")], q)).toMatchObject({
+      unbanked: ["b"],
+      ok: false,
+    });
+    expect(
+      gate(base, baseline({ a: good, b: good }), [run("a", 9), run("b")], q).overclaimed,
+    ).toEqual([]);
+  });
+
+  it("lists every quarantined case with its fixer and each run's verdict, on every run", () => {
+    const text = comment(gate(base, base, [run("a", 9), run("a"), run("a", 9), run("b")], q));
+    expect(text).toContain("- a (fixed by #1234): fail / pass / fail, fails");
+    expect(comment(gate(base, base, [run("b")], q))).toContain("- a (fixed by #1234): not run");
+  });
+
+  it("names a fixing PR for every quarantined id", () => {
+    for (const fixer of Object.values(QUARANTINED)) expect(fixer).toMatch(/#\d+/);
+  });
+});
+
 describe("gate", () => {
   const base = baseline({ a: good, b: good });
+
+  it("banks for each case a run that agrees with its 2 of 3 verdict, not its first run", () => {
+    const runs = [run("a", 9), run("b"), run("a"), run("b", 9), run("a"), run("b", 9)];
+    const banked = bankable(runs);
+    const g = gate(base, baseline({}), runs);
+    expect(banked.map((r) => [r.id, accurate(entry(r))])).toEqual([
+      ["a", true],
+      ["b", false],
+    ]);
+    const head = baseline(Object.fromEntries(banked.map((r) => [r.id, entry(r)])));
+    const again = gate(base, head, runs);
+    expect([again.unbanked, again.overclaimed]).toEqual([[], []]);
+    expect(g.regressed).toEqual(["b"]);
+  });
 
   it("re-runs every case whose verdict differs from the base branch, in either direction", () => {
     const mixed = baseline({ a: good, b: good, d: { ...good, drop: 9 } });
@@ -97,5 +146,24 @@ describe("gate", () => {
     const g = gate(base, base, [run("a")]);
     expect(g.missing).toEqual(["b"]);
     expect(g.reasons.join()).toContain("fell from 2 to 1");
+  });
+});
+
+describe("teleport in the gate", () => {
+  it("rejects a drag whose frames could not be measured, from scoring to the baseline entry", () => {
+    const r = {
+      tracking: { max: 0 },
+      pressJump: 0,
+      teleport: scoreTeleport("move", [{ t: 0, pointer: null, down: true }]),
+      drop: 0,
+      reload: 0,
+      render: 0,
+      undo: { bytes: true, redoBytes: true, box: 0, redoBox: 0 },
+      undoTimeout: null,
+      smooth: { intervals: [16], work: [2], control: { intervals: [16], work: [2] } },
+      unsettled: [],
+    };
+    expect(accurate(entry(score({ id: "move-x" }, r)))).toBe(false);
+    expect(accurate(entry(score({ id: "nudge-x" }, { ...r, teleport: null })))).toBe(true);
   });
 });
