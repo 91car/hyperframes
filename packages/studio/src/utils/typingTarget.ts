@@ -21,6 +21,11 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return element.closest(TYPING_SELECTOR) !== null;
 }
 
+/** Plain keys (arrows, Delete) also belong to a focused slider; Cmd shortcuts still do not. */
+export function ownsPlainKeys(target: EventTarget | null): boolean {
+  return isTypingTarget(target) || asElement(target)?.closest("[role='slider']") != null;
+}
+
 /**
  * Things a keystroke belongs to rather than to a shortcut. `contenteditable` is
  * matched by value as well, for a host whose own property is not yet true.
