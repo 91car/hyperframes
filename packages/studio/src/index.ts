@@ -181,6 +181,8 @@ export type { UseClipboardOptions } from "./hooks/useClipboard";
 // DOM editing for a host outside EditorShell; the Commit hooks save without useDomEditSession.
 export { useDomEditSession } from "./hooks/useDomEditSession";
 export type { UseDomEditSessionParams } from "./hooks/useDomEditSession";
+export { useLivePreviewIframe } from "./hooks/useLivePreviewIframe";
+export type { PreviewPromotion } from "./player/sceneSwap";
 export { usePreviewPersistence } from "./hooks/usePreviewPersistence";
 export type { UsePreviewPersistenceParams } from "./hooks/usePreviewPersistence";
 export { DomEditProvider, useDomEditSelectionContext } from "./contexts/DomEditContext";

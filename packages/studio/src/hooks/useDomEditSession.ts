@@ -24,6 +24,7 @@ import type { DomEditSelection } from "../components/editor/domEditingTypes";
 import { membersForDelete, timelineElementsForDelete } from "./domEditDeleteMembers";
 import type { RecordEditInput } from "./domEditDeleteMembers";
 import type { DomEditTimelineParams } from "./useDomSelectionTypes";
+import { useLivePreviewIframe } from "./useLivePreviewIframe";
 // Re-exported: the delete rule lives in its own module; callers and its test import it from here.
 export { membersForDelete };
 
@@ -86,14 +87,13 @@ export function useDomEditSession({
   importedFontAssetsRef,
   projectDir,
   projectIdRef,
-  previewIframe,
+  previewIframe: hostPreviewIframe,
   refreshKey,
   previewDocumentVersion,
   rightPanelTab,
   applyStudioManualEditsToPreviewRef,
   syncPreviewHotkeys,
   reloadPreview,
-  setRefreshKey: _setRefreshKey,
   openSourceForSelection,
   sdkSession,
   publishSdkSession,
@@ -103,7 +103,7 @@ export function useDomEditSession({
 }: UseDomEditSessionParams) {
   const isMasterView = !activeCompPath || activeCompPath === "index.html";
   const previewCaptionEditMode = captionEditMode && !readOnlyPreview;
-  void _setRefreshKey;
+  const previewIframe = useLivePreviewIframe(hostPreviewIframe);
   const {
     domEditSelection,
     domEditGroupSelections,
@@ -173,29 +173,11 @@ export function useDomEditSession({
 
   const { version: gsapCacheVersion, bump: bumpGsapCache } = useGsapCacheVersion();
 
-  // ── GSAP script commits ──
-
   const {
     commitMutation: gsapCommitMutation,
-    updateGsapProperty,
-    updateGsapMeta,
-    deleteGsapAnimation,
-    deleteAllForSelector,
-    addGsapAnimation,
-    addGsapProperty,
-    removeGsapProperty,
-    updateGsapFromProperty,
-    addGsapFromProperty,
-    removeGsapFromProperty,
-    addKeyframe,
-    addKeyframeBatch,
-    removeKeyframe,
-    moveKeyframe,
-    resizeKeyframedTween,
-    convertToKeyframes,
-    removeAllKeyframes,
     setArcPath,
     updateArcSegment,
+    ...gsapScriptEdits
   } = useGsapScriptCommits({
     projectIdRef,
     activeCompPath,
@@ -210,8 +192,6 @@ export function useDomEditSession({
     writeProjectFile,
     forceReloadSdkSession,
   });
-
-  // ── DOM commit handlers ──
 
   const {
     resolveImportedFontAsset,
@@ -430,23 +410,7 @@ export function useDomEditSession({
     applyDomSelection,
     buildDomSelectionFromTarget,
     openSourceForSelection,
-    updateGsapProperty,
-    updateGsapMeta,
-    deleteGsapAnimation,
-    deleteAllForSelector,
-    addGsapAnimation,
-    addGsapProperty,
-    removeGsapProperty,
-    updateGsapFromProperty,
-    addGsapFromProperty,
-    removeGsapFromProperty,
-    addKeyframe,
-    addKeyframeBatch,
-    removeKeyframe,
-    moveKeyframe,
-    resizeKeyframedTween,
-    convertToKeyframes,
-    removeAllKeyframes,
+    ...gsapScriptEdits,
     handleDomManualEditsReset,
   });
   const {
@@ -492,8 +456,8 @@ export function useDomEditSession({
     handleDomBoxSizeCommit,
     handleDomRotationCommit: handleDomCssRotationCommit,
     commitPositionPatchToHtml,
-    addGsapAnimation,
-    convertToKeyframes,
+    addGsapAnimation: gsapScriptEdits.addGsapAnimation,
+    convertToKeyframes: gsapScriptEdits.convertToKeyframes,
     setArcPath,
     updateArcSegment,
   });
