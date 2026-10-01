@@ -70,6 +70,7 @@ export function startGroupDrag(
       selection: item.selection,
       element: item.element,
       rect: item.rect,
+      gesture: "drag",
     });
     if (!result.ok) {
       restoreManualOffsetDragMembers(members);
@@ -151,10 +152,6 @@ export function startGesture(
     return false;
 
   const size = readStudioBoxSize(sel.element);
-  // Single-source rotation base = the live GSAP transform rotation plus any legacy
-  // `--hf-studio-rotation` CSS var (old projects), so a rotate gesture starts from the
-  // element's actual visual angle and commits an absolute angle to the timeline.
-  const rotation = { angle: readGsapRotation(sel.element) + readStudioRotation(sel.element).angle };
   // The draft writes CSS width/height, so the resize base must be the CSS
   // layout size. offsetWidth/Height are transform-free; the overlay-rect
   // fallback (rect / editScale) includes the element's own GSAP scale and
@@ -198,6 +195,7 @@ export function startGesture(
       selection: sel,
       element: sel.element,
       rect,
+      gesture: "drag",
     });
     if (!result.ok) {
       opts.onBlockedMoveRef.current(result.selection);
@@ -232,6 +230,10 @@ export function startGesture(
     }
   }
 
+  // Rotation base = GSAP's rotation plus the legacy `--hf-studio-rotation` var. A plain-translate
+  // move never asks GSAP: reading a property makes it bake the CSS translate into its transform.
+  const gsapRotation = pathOffsetMember?.plainTranslate ? 0 : readGsapRotation(sel.element);
+  const rotation = { angle: gsapRotation + readStudioRotation(sel.element).angle };
   const overlayBounds = overlayEl?.getBoundingClientRect();
   const centerX = (overlayBounds?.left ?? 0) + rect.left + rect.width / 2;
   const centerY = (overlayBounds?.top ?? 0) + rect.top + rect.height / 2;

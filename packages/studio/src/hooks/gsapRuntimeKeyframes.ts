@@ -405,6 +405,41 @@ export function hasNonHoldTweenForElement(
   return !!targetEl && hasNonHoldTween(timelinesOf(iframe), targetEl, channels, compositionId);
 }
 
+// A sibling rotation/scale tween must never push a static position hold into the keyframe branch.
+export const POSITION_CHANNELS: string[] = [
+  "x",
+  "y",
+  "xPercent",
+  "yPercent",
+  "left",
+  "top",
+  // readTween reads the authored translateX/Y; GSAP normalizes them to x/y only at play time.
+  "translateX",
+  "translateY",
+];
+const MOVE_CHANNELS = [...POSITION_CHANNELS, "motionPath"];
+
+/** Whether a live timeline tween or hold writes any of `channels` on `el`. Sync, no fetch. */
+function gsapWritesChannels(el: Element, channels: string[]): boolean {
+  const win = el.ownerDocument.defaultView as { __timelines?: Record<string, RuntimeTimeline> };
+  return Object.values(win?.__timelines ?? {}).some((tl) =>
+    (tl?.getChildren?.(true) ?? []).some(
+      (tween) =>
+        !!tween.vars &&
+        matchesElement(tween, el) &&
+        (channels.some((ch) => ch in tween.vars!) ||
+          keyframeVarsCarryChannel(tween.vars, channels)),
+    ),
+  );
+}
+
+/** GSAP owns this element's position: a tween or hold writes it, or GSAP already renders its
+ *  transform (a CSS translate would then apply twice). Everything else moves by plain CSS. */
+export function gsapWritesPosition(el: Element): boolean {
+  const cache = (el as { _gsap?: { renderTransform?: unknown } })._gsap;
+  return !!cache?.renderTransform || gsapWritesChannels(el, MOVE_CHANNELS);
+}
+
 /** `hasNonHoldTweenForElement` for an element in hand, read from its own window's timelines. */
 export function elementHasNonHoldTween(el: Element, channels?: string[]): boolean {
   const win = el.ownerDocument.defaultView as {

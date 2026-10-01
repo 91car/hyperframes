@@ -10,11 +10,7 @@
 import { useCallback } from "react";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import type { DomEditSelection } from "../components/editor/domEditingTypes";
-import {
-  POSITION_CHANNELS,
-  tryGsapDragIntercept,
-  tryGsapRotationIntercept,
-} from "./gsapRuntimeBridge";
+import { tryGsapDragIntercept, tryGsapRotationIntercept } from "./gsapRuntimeBridge";
 import { tryGsapResizeIntercept } from "./gsapResizeIntercept";
 import { computeDraggedGsapPosition } from "./draggedGsapPosition";
 import { readGsapPositionFromIframe } from "./gsapPositionDetection";
@@ -33,7 +29,11 @@ import { setElementGsapPosition } from "../utils/elementGsap";
 import { logResize, logResizeSettle } from "../utils/resizeDebug";
 import type { DomEditGroupPathOffsetCommit } from "../components/editor/DomEditOverlay";
 import { runGestureTransaction } from "./gestureTransaction";
-import { hasNonHoldTweenForElement } from "./gsapRuntimeKeyframes";
+import {
+  gsapWritesPosition,
+  hasNonHoldTweenForElement,
+  POSITION_CHANNELS,
+} from "./gsapRuntimeKeyframes";
 import { assertGsapEditPersisted, saveMove } from "./gsapEditOutcome";
 import type { GsapAnimationFetchOptions } from "./useGsapAnimationFetchFallback";
 import type { ElementOffsetStagerDeps } from "./elementOffsetStager";
@@ -153,6 +153,8 @@ export function useGsapAwareEditing({
       next: { x: number; y: number },
       modifiers?: { altKey?: boolean },
     ) => {
+      if (!gsapWritesPosition(selection.element))
+        return stageElementPositionOffset(selection, next).save();
       if (gsapCommitMutation) {
         try {
           const ownedAnimations = getGsapAnimationsForSelection(selection);
@@ -185,11 +187,8 @@ export function useGsapAwareEditing({
     ],
   );
 
-  // Multi-select (group) drag: route EACH element through the SAME GSAP intercept as
-  // a single drag, so every position is written as GSAP code (tl.set / keyframes /
-  // gsap.set) — NEVER the deprecated `--hf-studio-offset` CSS var, and GSAP-animated
-  // elements are no longer blocked in a group. No CSS fallback: with no GSAP
-  // composition there's nothing to write (a no-op, exactly like the single-drag path).
+  // Multi-select (group) drag: each member takes the single drag's writer, so a member GSAP
+  // does not position is saved on itself and the rest go through the GSAP intercept.
   const handleGsapAwareGroupPathOffsetCommit = useCallback(
     async (updates: DomEditGroupPathOffsetCommit[]) => {
       if (!gsapCommitMutation || updates.length === 0) return;
@@ -247,6 +246,7 @@ export function useGsapAwareEditing({
       // turns N sequential round trips into one.
       const preflightResults = await Promise.allSettled(
         updates.map(async ({ selection }) => {
+          if (!gsapWritesPosition(selection.element)) return void offsetMembers.add(selection);
           const animations = await makeFetchFallback(selection, { failOnFetchError: true })();
           preflightAnimations.set(selection, animations);
           const outcome = await tryGsapDragIntercept(
