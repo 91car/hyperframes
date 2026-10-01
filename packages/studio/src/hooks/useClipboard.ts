@@ -160,10 +160,17 @@ const hfIdsInFile = (content: string) =>
 export function pasteElementHtml(
   content: string,
   payload: { html: string; originSelector?: string; originSelectorIndex?: number },
+  fromThisFile = false,
 ): string {
   const reminted = remintHfIds(payload.html, new DOMParser(), hfIdsInFile(content));
   const deduped = deduplicateIds(reminted, collectHtmlIds(content));
-  return insertAsSibling(content, deduped, payload.originSelector, payload.originSelectorIndex);
+  const result = insertAsSibling(
+    content,
+    deduped,
+    payload.originSelector,
+    payload.originSelectorIndex,
+  );
+  return fromThisFile ? carryLook(result, renamedIds(reminted, deduped), 0) : result;
 }
 
 /** Shared insertion path for paste and duplicate, anchored at the playhead or the selection's end. Returns the
@@ -324,6 +331,7 @@ export function useClipboard({
           kind: "dom-element",
           html: savedMarkupElseLive(parseSavedSource(content), live, sourceFile),
           sourceFile,
+          projectId: projectIdRef.current ?? undefined,
           originSelector: domSelection.selector,
           originSelectorIndex: domSelection.selectorIndex,
         };
@@ -373,15 +381,17 @@ export function useClipboard({
     const targetPath = activeCompPath || "index.html";
     try {
       let pastedIds: string[] = [];
+      const fromThisFile = payload.sourceFile === targetPath && payload.projectId === pid;
       const paste = (originalContent: string) => {
-        if (payload.kind !== "timeline-clip") return pasteElementHtml(originalContent, payload);
+        if (payload.kind !== "timeline-clip")
+          return pasteElementHtml(originalContent, payload, fromThisFile);
         const { currentTime, elements } = usePlayerStore.getState();
         const pasted = pasteTimelineClips(
           originalContent,
           payload.clips,
           currentTime,
           elements,
-          payload.sourceFile === targetPath && payload.projectId === pid,
+          fromThisFile,
         );
         pastedIds = pasted.ids;
         // A clip pasted past the current composition end would exist in the
