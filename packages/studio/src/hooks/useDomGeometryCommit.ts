@@ -1,3 +1,4 @@
+import type { RotationCommit } from "../components/editor/rotationDraft";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import type { DomEditSelection } from "../components/editor/domEditing";
@@ -43,7 +44,7 @@ export interface DomGeometryCommits {
   ) => Promise<DomEditCommitOutcome>;
   commitRotation: (
     selection: DomEditSelection,
-    next: { angle: number },
+    next: RotationCommit,
   ) => Promise<DomEditCommitOutcome>;
   waitForPendingSaves: () => Promise<void>;
 }
@@ -108,12 +109,13 @@ export function useDomGeometryCommit({
     },
     [commitPositionPatchToHtml, queue],
   );
-  const { stageElementPositionOffset, handleDomBoxSizeCommit } = useDomGeometryCommits({
-    previewIframeRef: iframeRef,
-    showToast,
-    commitPositionPatchToHtml: commitWithFreshQueue,
-    readOnlyPreview: false,
-  });
+  const { stageElementPositionOffset, handleDomBoxSizeCommit, handleDomRotationCommit } =
+    useDomGeometryCommits({
+      previewIframeRef: iframeRef,
+      showToast,
+      commitPositionPatchToHtml: commitWithFreshQueue,
+      readOnlyPreview: false,
+    });
   const makeFetchFallback = useGsapAnimationFetchFallback(projectId);
   const trackGsapInteractionFailure = useGsapInteractionFailureTelemetry(activeCompPath, showToast);
   const {
@@ -133,6 +135,7 @@ export function useDomGeometryCommit({
     trackGsapInteractionFailure,
     stageElementPositionOffset,
     handleDomBoxSizeCommit,
+    handleDomRotationCommit,
     commitPositionPatchToHtml: commitWithFreshQueue,
     addGsapAnimation: gsap.addGsapAnimation,
     convertToKeyframes: gsap.convertToKeyframes,

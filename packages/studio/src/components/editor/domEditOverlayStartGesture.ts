@@ -6,17 +6,16 @@ import { type DomEditSelection } from "./domEditing";
 import {
   applyManualOffsetDragDraft,
   createManualOffsetDragMember,
-  readGsapRotation,
   restoreManualOffsetDragMembers,
   type ManualOffsetDragMember,
 } from "./manualOffsetDrag";
+import { readCssRotationTarget, readRotationBase } from "./rotationDraft";
 import {
   beginStudioManualEditGesture,
   captureStudioBoxSize,
   captureStudioPathOffset,
   captureStudioRotation,
   readStudioBoxSize,
-  readStudioRotation,
 } from "./manualEdits";
 import {
   type OverlayRect,
@@ -32,6 +31,7 @@ import {
   type UseDomEditOverlayGesturesOptions,
 } from "./domEditOverlayGestures";
 import { collectSnapContext, buildExcludeElements } from "./snapTargetCollection";
+import { gsapWritesRotation } from "../../hooks/gsapRuntimeKeyframes";
 import { logResize, resetResizeMoveLog } from "../../utils/resizeDebug";
 import { logDrag, readDragPositions, resetDragMoveLog } from "../../utils/dragDebug";
 
@@ -219,10 +219,11 @@ export function startGesture(
     }
   }
 
-  // Rotation base = GSAP's rotation plus the legacy `--hf-studio-rotation` var. A plain-translate
-  // move never asks GSAP: reading a property makes it bake the CSS translate into its transform.
-  const gsapRotation = pathOffsetMember?.plainTranslate ? 0 : readGsapRotation(sel.element);
-  const rotation = { angle: gsapRotation + readStudioRotation(sel.element).angle };
+  // Rotation base: the angle the element shows. An element GSAP does not turn, or a plain-translate
+  // move, never asks GSAP: reading a property makes it bake the CSS into its transform.
+  const plain = !!pathOffsetMember?.plainTranslate || !gsapWritesRotation(sel.element);
+  const plainRotation = plain && kind === "rotate" ? readCssRotationTarget(sel.element) : null;
+  const rotation = { angle: readRotationBase(sel.element, plain) };
   const overlayBounds = overlayEl?.getBoundingClientRect();
   const centerX = (overlayBounds?.left ?? 0) + rect.left + rect.width / 2;
   const centerY = (overlayBounds?.top ?? 0) + rect.top + rect.height / 2;
@@ -270,6 +271,7 @@ export function startGesture(
     actualWidth,
     actualHeight,
     actualRotation: rotation.angle,
+    plainRotation,
     editScaleX: rect.editScaleX,
     editScaleY: rect.editScaleY,
     contentScaleX,
