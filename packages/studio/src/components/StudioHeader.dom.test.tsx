@@ -42,6 +42,7 @@ vi.mock("../contexts/PanelLayoutContext", () => ({
 vi.mock("../utils/studioTelemetry", () => ({ trackStudioEvent: vi.fn() }));
 
 const { StudioHeader } = await import("./StudioHeader");
+const { ShowThemeToggle } = await import("./ThemeToggle");
 
 let mounted: { root: Root; host: HTMLElement } | null = null;
 
@@ -54,6 +55,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete document.documentElement.dataset.theme;
   if (!mounted) return;
   const { root, host } = mounted;
   mounted = null;
@@ -61,21 +63,30 @@ afterEach(() => {
   host.remove();
 });
 
-function mount(props: { inspectorButtonActive?: boolean } = {}): HTMLElement {
+function mount(
+  props: { inspectorButtonActive?: boolean; themeToggle?: boolean } = {},
+): HTMLElement {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
   mounted = { root, host };
+  const header = (
+    <StudioHeader
+      captureFrameHref="blob:frame"
+      captureFrameFilename="frame.png"
+      handleCaptureFrameClick={vi.fn()}
+      refreshCaptureFrameTime={vi.fn()}
+      inspectorButtonActive={props.inspectorButtonActive ?? false}
+      inspectorPanelActive={false}
+    />
+  );
   act(() =>
     root.render(
-      <StudioHeader
-        captureFrameHref="blob:frame"
-        captureFrameFilename="frame.png"
-        handleCaptureFrameClick={vi.fn()}
-        refreshCaptureFrameTime={vi.fn()}
-        inspectorButtonActive={props.inspectorButtonActive ?? false}
-        inspectorPanelActive={false}
-      />,
+      props.themeToggle ? (
+        <ShowThemeToggle.Provider value>{header}</ShowThemeToggle.Provider>
+      ) : (
+        header
+      ),
     ),
   );
   return host;
@@ -178,4 +189,15 @@ it("classifies the new header controls for the hotkey filters as the old ones we
     expect(isTypingTarget(el), el.getAttribute("aria-label") ?? el.tagName).toBe(false);
     expect(shouldIgnorePlaybackShortcutTarget(el), el.tagName).toBe(true);
   }
+});
+
+it("shows no theme toggle and leaves the host's data-theme alone when embedded", () => {
+  document.documentElement.dataset.theme = "host";
+  const host = mount();
+  expect(host.querySelector('[aria-label^="Switch to"]')).toBeNull();
+  expect(document.documentElement.dataset.theme).toBe("host");
+});
+
+it("shows the theme toggle in Studio's own app", () => {
+  expect(mount({ themeToggle: true }).querySelector('[aria-label^="Switch to"]')).not.toBeNull();
 });
