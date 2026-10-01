@@ -98,6 +98,7 @@ function mountClipboard(
   sub = SUB,
   bundle: (host: Element) => void = () => {},
   saved = SAVED,
+  view = { path: "index.html" },
 ) {
   const files: Record<string, string> = { "index.html": saved, "compositions/sub.html": sub };
   const fail = { on: false };
@@ -115,7 +116,7 @@ function mountClipboard(
   function Harness() {
     api = useClipboard({
       projectId: "p",
-      activeCompPath: "index.html",
+      activeCompPath: view.path,
       domEditSelectionRef: domSelectionRef,
       showToast: () => {},
       writeProjectFile,
@@ -134,7 +135,9 @@ function mountClipboard(
   root = createRoot(document.createElement("div"));
   act(() => root?.render(React.createElement(Harness)));
   const clipboard = () => api as ReturnType<typeof useClipboard>;
+  const rerender = () => act(() => root?.render(React.createElement(Harness)));
   return {
+    rerender,
     clipboard,
     writes,
     deleted,
@@ -253,6 +256,17 @@ const SUB_SELECTION = {
   sourceFile: "compositions/sub.html",
 } as DomEditSelection;
 
+const copySubNext = ({ clipboard, domSelectionRef }: ReturnType<typeof mountClipboard>) => {
+  clearSelection();
+  domSelectionRef.current = SUB_SELECTION;
+  clipboard().handleCopy();
+};
+
+const expectSubPastedAlone = (writes: string[]) => {
+  expect(writes[0]).toContain(">Sub</h2>");
+  expect(writes[0]?.match(/>Title<\/h1>/g)).toHaveLength(1);
+};
+
 describe("paste of an element styled by its id", () => {
   it("gives the copy the look its original has", async () => {
     clearSelection();
@@ -339,30 +353,24 @@ describe("copy order", () => {
 
   it("pastes the second of two copies", async () => {
     selectTitle();
-    const { clipboard, writes, domSelectionRef } = mountClipboard();
-    clipboard().handleCopy();
+    const view = mountClipboard();
+    view.clipboard().handleCopy();
     await new Promise((resolve) => setTimeout(resolve, 10));
-    clearSelection();
-    domSelectionRef.current = SUB_SELECTION;
-    clipboard().handleCopy();
-    await clipboard().handlePaste();
-    expect(writes[0]).toContain(">Sub</h2>");
-    expect(writes[0]?.match(/>Title<\/h1>/g)).toHaveLength(1);
+    copySubNext(view);
+    await view.clipboard().handlePaste();
+    expectSubPastedAlone(view.writes);
   });
 
   it("pastes the later copy even when the earlier copy's read lands last", async () => {
     selectTitle();
-    const { clipboard, writes, delayMs, domSelectionRef } = mountClipboard();
-    delayMs["index.html"] = 20;
-    clipboard().handleCopy();
-    clearSelection();
-    domSelectionRef.current = SUB_SELECTION;
-    clipboard().handleCopy();
+    const view = mountClipboard();
+    view.delayMs["index.html"] = 20;
+    view.clipboard().handleCopy();
+    copySubNext(view);
     await new Promise((resolve) => setTimeout(resolve, 40));
-    delayMs["index.html"] = 0;
-    await clipboard().handlePaste();
-    expect(writes[0]).toContain(">Sub</h2>");
-    expect(writes[0]?.match(/>Title<\/h1>/g)).toHaveLength(1);
+    view.delayMs["index.html"] = 0;
+    await view.clipboard().handlePaste();
+    expectSubPastedAlone(view.writes);
   });
 
   it("duplicates a hidden clip with its saved markup", async () => {
@@ -371,6 +379,78 @@ describe("copy order", () => {
     await clipboard().handleDuplicate();
     expect(writes[0]?.match(/>Title<\/h1>/g)).toHaveLength(2);
     expect(writes[0]).not.toContain("display: none");
+  });
+});
+
+describe("a copy in place, as the canvas makes one", () => {
+  // The copy's start and track: the saved original has no data-hf-id, its copy is minted one.
+  const copyAt = (html: string | undefined) => {
+    const copy = html?.match(/<h1[^>]*data-hf-id[^>]*>Title<\/h1>/)?.[0] ?? "";
+    return [copy.match(/data-start="([^"]*)"/)?.[1], copy.match(/data-track-index="([^"]*)"/)?.[1]];
+  };
+
+  it("duplicates at the clip's own time, on the next free track", async () => {
+    selectTitle();
+    const { clipboard, writes } = mountClipboard();
+    await clipboard().handleDuplicate({ inPlace: true });
+    expect(copyAt(writes[0])).toEqual(["2", "1"]);
+  });
+
+  it("pastes at the copied clip's time, not the playhead's", async () => {
+    selectTitle();
+    const { clipboard, writes } = mountClipboard();
+    clipboard().handleCopy();
+    await clipboard().handlePaste({ inPlace: true });
+    expect(copyAt(writes[0])).toEqual(["2", "1"]);
+  });
+
+  // Host at 2 s: the clip's local 1-3 s shows as a 3-5 s master row, the clock the film's own timeline has.
+  const SUB_CLIP: TimelineElement = {
+    id: SUB_HF_ID,
+    hfId: SUB_HF_ID,
+    tag: "h2",
+    start: 3,
+    duration: 2,
+    track: 0,
+    authoredTrack: 0,
+    sourceFile: "compositions/sub.html",
+    parentCompositionStart: 2,
+  };
+  const pastedSubStarts = (html: string | undefined) =>
+    [...(html ?? "").matchAll(/<h2[^>]*data-hf-id[^>]*data-start="([^"]+)"/g)].map((m) => m[1]);
+  const mountSubClip = (currentTime = 0, view = { path: "index.html" }) => {
+    usePlayerStore.setState({
+      elements: [TITLE, SUB_CLIP],
+      selectedElementId: SUB_CLIP.id,
+      selectedElementIds: new Set([SUB_CLIP.id]),
+      currentTime,
+    });
+    return mountClipboard(null, SUB, (host) => host.setAttribute("data-start", "2"), SAVED, view);
+  };
+
+  it("pastes a sub-composition's clip into the film at the moment the film shows it", async () => {
+    const { clipboard, writes } = mountSubClip(7);
+    clipboard().handleCopy();
+    await clipboard().handlePaste({ inPlace: true });
+    expect(pastedSubStarts(writes[0])).toEqual(["3"]);
+  });
+
+  it("duplicates a sub-composition's clip at its own local time, on another track", async () => {
+    const { clipboard, writes } = mountSubClip();
+    await clipboard().handleDuplicate({ inPlace: true });
+    const copy = /<h2[^>]*data-hf-id[^>]*>/.exec(writes[0] ?? "")?.[0] ?? "";
+    expect(copy).toContain('data-start="1"');
+    expect(copy).toContain('data-track-index="1"');
+  });
+
+  it("pastes at the playhead once the edited composition is another, whose clock differs", async () => {
+    const view = { path: "index.html" };
+    const { clipboard, writes, rerender } = mountSubClip(0.5, view);
+    clipboard().handleCopy();
+    view.path = "compositions/sub.html";
+    rerender();
+    await clipboard().handlePaste({ inPlace: true });
+    expect(pastedSubStarts(writes[0])).toEqual(["0.5"]);
   });
 });
 
