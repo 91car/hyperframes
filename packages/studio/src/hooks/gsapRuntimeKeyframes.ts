@@ -11,6 +11,7 @@
 import { buildArcPath, type ArcPathConfig } from "@hyperframes/core/gsap-parser-acorn";
 import { parsePercentageKeyframes, toAbsoluteTime } from "./gsapShared";
 import { roundTo3 } from "../utils/rounding";
+import { BOX_SIZE_STYLE_PROPS } from "../components/editor/manualEditsDomPatches";
 
 /**
  * A GSAP tween's `vars` object — intentionally open: it mixes channel values
@@ -444,6 +445,19 @@ function gsapWritesChannels(el: Element, channels: string[]): boolean {
 export function gsapWritesPosition(el: Element): boolean {
   const cache = (el as { _gsap?: { renderTransform?: unknown } })._gsap;
   return !!cache?.renderTransform || gsapWritesChannels(el, MOVE_CHANNELS);
+}
+
+const BOX_CHANNELS = [
+  ...BOX_SIZE_STYLE_PROPS.map((prop) =>
+    prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()),
+  ),
+  "scaleX",
+  "scaleY",
+];
+
+/** GSAP owns this element's box: its position, or any property the CSS box writer sets. Else a resize writes CSS. */
+export function gsapWritesBox(el: Element): boolean {
+  return gsapWritesPosition(el) || gsapWritesChannels(el, BOX_CHANNELS);
 }
 
 /** `hasNonHoldTweenForElement` for an element in hand, read from its own window's timelines. */
