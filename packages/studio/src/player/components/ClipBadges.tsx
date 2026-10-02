@@ -44,21 +44,21 @@ export const ClipBadges = memo(function ClipBadges({
   };
   return (
     <span
-      className="pointer-events-none absolute right-1.5 top-0.5 z-[3] flex gap-1"
+      className="pointer-events-none absolute right-1.5 top-0.5 z-[31] flex max-w-[calc(100%-12px)] gap-1 overflow-hidden"
       data-testid="clip-badges"
     >
       {volume && (
         <span
-          className={`${BADGE_CLASS} border-white/20 text-white/90`}
+          className={`${BADGE_CLASS} min-w-0 overflow-hidden border-white/20 text-white/90`}
           title={volume}
           data-badge="volume"
         >
           <SpeakerGlyph muted={volume === "Muted"} />
-          {volume === "Muted" ? null : <span>{volume}</span>}
+          {volume === "Muted" ? null : <span className="truncate">{volume}</span>}
         </span>
       )}
       <span
-        className={`${BADGE_CLASS} pointer-events-auto cursor-pointer ${hasEffects ? FX_ON : FX_OFF}`}
+        className={`${BADGE_CLASS} pointer-events-auto shrink-0 cursor-pointer ${hasEffects ? FX_ON : FX_OFF}`}
         title={hasEffects ? effects.join(" · ") : "No effects"}
         data-badge="fx"
         data-fx-active={hasEffects ? "true" : "false"}

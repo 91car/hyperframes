@@ -20,6 +20,7 @@ import { usePlayerStore, type TimelineElement } from "../store/playerStore";
 import { Tooltip } from "../../components/ui";
 import { useTimelineEditContextOptional } from "../../contexts/TimelineEditContext";
 import { releasedOutsideWindow } from "./timelinePointerRelease";
+import { CLIP_TRIM_HIT_PX } from "./timelineTheme";
 import {
   collectTimelineSnapTargets,
   snapTimelineTime,
@@ -135,14 +136,29 @@ export function TimelineClipFades({
   const visible =
     fades.fadeIn > 0 || fades.fadeOut > 0 || showHandles || dragging !== null || focused !== null;
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [clipBox, setClipBox] = useState({ height: 0, radius: 0 });
+  const [clipBox, setClipBox] = useState<{
+    height: number;
+    width: number;
+    radius: number;
+    toolsLeft: number | null;
+  }>({ height: 0, width: 0, radius: 0, toolsLeft: null });
   useLayoutEffect(() => {
-    const clip = rootRef.current?.parentElement;
-    if (!clip) return;
+    const root = rootRef.current;
+    const clip = root?.parentElement;
+    if (!root || !clip) return;
     const radius = parseFloat(getComputedStyle(clip).borderTopLeftRadius) || 0;
-    const height = clip.clientHeight;
+    const { clientHeight: height, clientWidth: width } = root;
+    const fx = clip.querySelector('[data-badge="fx"]');
+    const toolsLeft = fx
+      ? fx.getBoundingClientRect().left - root.getBoundingClientRect().left
+      : null;
     setClipBox((box) =>
-      box.height === height && box.radius === radius ? box : { height, radius },
+      box.height === height &&
+      box.width === width &&
+      box.radius === radius &&
+      box.toolsLeft === toolsLeft
+        ? box
+        : { height, width, radius, toolsLeft },
     );
   }, [widthPx, visible]);
 
@@ -332,13 +348,20 @@ export function TimelineClipFades({
   const handlesVisible = showHandles || dragging !== null || focused !== null;
   if (!visible) return null;
 
-  const hitWidth = Math.min(HANDLE_HIT, widthPx / 2);
+  const clipWidth = clipBox.toolsLeft === null ? widthPx : clipBox.width;
+  const edgeInset = clipBox.toolsLeft === null ? 0 : CLIP_TRIM_HIT_PX;
+  // Reserve FX horizontally so fades keep their top-edge lane above compact keyframe centres.
+  const rightEdge =
+    clipBox.toolsLeft === null ? clipWidth : Math.min(clipWidth - edgeInset, clipBox.toolsLeft);
+  const hitWidth = Math.min(HANDLE_HIT, (rightEdge - edgeInset) / 2);
   const tabX = (edge: FadeEdge) => {
-    const knee = edge === "in" ? inPx : widthPx - outPx;
-    const inset = Math.min(TAB_INSET, widthPx / 2);
-    return Math.min(widthPx - inset, Math.max(inset, knee));
+    const knee = edge === "in" ? inPx : clipWidth - outPx;
+    const tabInset = edgeInset === 0 ? TAB_INSET : TAB_WIDTH;
+    const inset = Math.min(tabInset, (rightEdge - edgeInset) / 2);
+    return Math.min(rightEdge - inset, Math.max(edgeInset + inset, knee));
   };
-  const boxLeft = (x: number) => Math.min(widthPx - hitWidth, Math.max(0, x - hitWidth / 2));
+  const boxLeft = (x: number) =>
+    Math.min(rightEdge - hitWidth, Math.max(edgeInset, x - hitWidth / 2));
   const [inX, outX] = [tabX("in"), tabX("out")];
   const mid = (inX + outX) / 2;
   // A handle with no 0.01 s step to move is not drawn, unless in use: its twin owns the spot.
@@ -350,14 +373,14 @@ export function TimelineClipFades({
   const overlap = drawn("in") && drawn("out") && boxLeft(inX) + hitWidth > boxLeft(outX);
   const handleGeometry = (edge: FadeEdge) => {
     const x = edge === "in" ? inX : outX;
-    // Boxes that would overlap meet at the midpoint between the two tabs.
     const [left, right] = !overlap
       ? [boxLeft(x), boxLeft(x) + hitWidth]
       : edge === "in"
-        ? [Math.max(0, mid - hitWidth), mid]
-        : [mid, Math.min(widthPx, mid + hitWidth)];
-    const edgeY = topEdgeY(x, widthPx, clipBox.height, clipBox.radius);
-    return { left, width: right - left, tabLeft: x - left, top: edgeY + 1 - TAB_CENTER_IN_HIT };
+        ? [Math.max(edgeInset, mid - hitWidth), mid]
+        : [mid, Math.min(rightEdge, mid + hitWidth)];
+    const edgeY = topEdgeY(x, clipWidth, clipBox.height, clipBox.radius);
+    const top = edgeY + 1 - TAB_CENTER_IN_HIT;
+    return { left, width: right - left, tabLeft: x - left, top };
   };
   const handleStyle = (geometry: { left: number; top: number; width: number }): CSSProperties => ({
     position: "absolute",
