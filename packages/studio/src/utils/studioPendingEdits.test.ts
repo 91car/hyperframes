@@ -10,6 +10,7 @@ import {
   trackedStudioEdit,
 } from "./studioPendingEdits";
 import { StudioFileConflictError } from "./studioSaveDiagnostics";
+import { revertNewestStudioPendingEdit as hostRevert } from "../index";
 
 describe("studio pending edit flush", () => {
   it("waits for mounted panels to persist pending local edits", async () => {
@@ -275,5 +276,22 @@ describe("a pending edit whose start throws", () => {
     ).toThrow("The commit threw.");
     await expect(flushStudioPendingEdits()).resolves.toEqual({ status: "clean" });
     expect(hasStudioPendingEdits()).toBe(false);
+  });
+});
+
+describe("the package's public revert", () => {
+  it("lets a host's own undo key paint a still-saving move back at once", async () => {
+    let left = "120px";
+    const edit = beginStudioPendingEdit(() => ((left = "0px"), () => void (left = "120px")));
+    try {
+      const putBack = hostRevert();
+      expect(left).toBe("0px");
+      expect(hostRevert()).toBeNull();
+      putBack?.();
+      expect(left).toBe("120px");
+    } finally {
+      edit.settle();
+      await flushStudioPendingEdits();
+    }
   });
 });
