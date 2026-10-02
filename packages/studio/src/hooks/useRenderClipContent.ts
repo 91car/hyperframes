@@ -12,6 +12,9 @@ import type { TimelineClipRenderContext } from "../player/components/TimelineTyp
 import { audioPillFlags } from "../player/components/audioClipLink";
 import { AudioWaveform, rendersWaveform } from "../player/components/AudioWaveform";
 import { ImageThumbnail } from "../player/components/ImageThumbnail";
+import { AudibleVideoClipContent } from "../player/components/AudibleVideoClipContent";
+import { ClipPeakMarks } from "../player/components/ClipPeakMarks";
+import { clipHasSound } from "../player/components/clipMenuNormalize";
 import { encodePreviewPath, resolveMediaPreviewUrl } from "../player/components/thumbnailUtils";
 import { usePlayerStore } from "../player/store/playerStore";
 import { thumbnailRevisionOf } from "../player/store/thumbnailSlice";
@@ -71,7 +74,7 @@ function renderAudioClip(
     ? buildProjectApiPath(pid, `/waveform/${encodedRelative}`)
     : undefined;
   const { start, end } = trimFractions(el);
-  return createElement(AudioWaveform, {
+  const waveform = createElement(AudioWaveform, {
     audioUrl,
     waveformUrl,
     label: "",
@@ -83,6 +86,27 @@ function renderAudioClip(
     priority: context.priority,
     ...audioPillFlags(el, elements),
   });
+  return createElement(
+    ClipPeakMarks,
+    {
+      peaksUrl: encodedRelative ? buildProjectApiPath(pid, `/peaks/${encodedRelative}`) : undefined,
+      sourceWindow: {
+        mediaStart: el.playbackStart ?? 0,
+        sourceSpan: el.duration * (el.playbackRate ?? 1),
+      },
+      gain: el.volume ?? 1,
+    },
+    waveform,
+  );
+}
+
+function withSoundStrip(
+  el: TimelineElement,
+  thumbnail: ReactNode,
+  waveform: () => ReactNode,
+): ReactNode {
+  if (el.tag !== "video" || !clipHasSound(el)) return thumbnail;
+  return createElement(AudibleVideoClipContent, { thumbnail, waveform: waveform() });
 }
 
 export interface UseRenderClipContentOptions {
@@ -117,10 +141,9 @@ export function useRenderClipContent({
 
       // Thumbnail generation disabled (perf) -> plain clip bars. Audio still shows
       // its waveform (cheap, not a frame thumbnail). Toggle: timeline toolbar.
+      const waveform = () => renderAudioClip(el, pid, sessionEpoch, style.label, context, elements);
       if (effectiveMode === "hidden") {
-        return rendersWaveform(el)
-          ? renderAudioClip(el, pid, sessionEpoch, style.label, context, elements)
-          : null;
+        return rendersWaveform(el) ? waveform() : withSoundStrip(el, null, waveform);
       }
 
       let compSrc = el.compositionSrc;
@@ -205,7 +228,7 @@ export function useRenderClipContent({
             rich: context.rich,
           });
         }
-        return createElement(VideoThumbnail, {
+        const thumbnail = createElement(VideoThumbnail, {
           videoSrc: mediaSrc,
           label: "",
           labelColor: style.label,
@@ -216,6 +239,7 @@ export function useRenderClipContent({
           sessionEpoch,
           priority: context.priority,
         });
+        return withSoundStrip(el, thumbnail, waveform);
       }
 
       if (htmlPreviewEligible) {
