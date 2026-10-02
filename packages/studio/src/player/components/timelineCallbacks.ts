@@ -39,6 +39,12 @@ export interface TimelineDropCallbacks {
   ) => Promise<void> | void;
 }
 
+export type TimelineLinkEdit =
+  | { kind: "unlink"; elements: readonly TimelineElement[] }
+  | { kind: "link"; elements: readonly TimelineElement[] }
+  | { kind: "detach"; element: TimelineElement }
+  | { kind: "merge"; video: TimelineElement; audio: TimelineElement };
+
 export interface TimelineEditCallbacks {
   onMoveElement?: (
     element: TimelineElement,
@@ -115,6 +121,8 @@ export interface TimelineEditCallbacks {
     label: string,
   ) => Promise<TimelineEditOutcome | void>;
   onBlockedEditAttempt?: (element: TimelineElement, intent: BlockedTimelineEditIntent) => void;
+  onLinkEdit?: (edit: TimelineLinkEdit) => Promise<void> | void;
+  onDeleteElementOnly?: (element: TimelineElement) => Promise<void> | void;
   onSplitElement?: (element: TimelineElement, splitTime: number) => Promise<void> | void;
   onRazorSplit?: (element: TimelineElement, splitTime: number) => Promise<void> | void;
   onRazorSplitAll?: (splitTime: number) => Promise<void> | void;

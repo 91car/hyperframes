@@ -1,33 +1,76 @@
-import type { TimelineElement } from "../store/timelineElement";
+import { sameCompositionScope, type TimelineElement } from "../store/timelineElement";
 
-function mediaFileKey(src: string | undefined): string | null {
+type LinkScoped = Pick<TimelineElement, "sourceFile" | "compositionScope">;
+type LinkedElement = Pick<TimelineElement, "id" | "key" | "link"> & LinkScoped;
+
+const keyOf = (element: Pick<TimelineElement, "id" | "key">) => element.key ?? element.id;
+
+const SOURCE_BASE = "https://project.invalid/";
+const SOURCE_ORIGIN = new URL(SOURCE_BASE).origin;
+
+export function mediaAssetIdentity(
+  element: Pick<TimelineElement, "src" | "sourceFile">,
+): string | null {
+  const src = element.src?.trim();
   if (!src) return null;
-  const path = src.split(/[?#]/, 1)[0] ?? "";
-  const segment = path.split(/[/\\]/).pop()?.trim().toLowerCase() ?? "";
-  return segment.length > 0 ? segment : null;
+  try {
+    const url = new URL(src, new URL(element.sourceFile ?? "index.html", SOURCE_BASE));
+    if (url.origin !== SOURCE_ORIGIN) return `${url.origin}${url.pathname}${url.search}`;
+    return decodeURIComponent(`${url.origin}${url.pathname}`);
+  } catch {
+    return null;
+  }
+}
+
+function isLinked(element: Pick<TimelineElement, "link">): boolean {
+  return typeof element.link === "string" && element.link.length > 0;
+}
+
+export function sharesLinkGroup(
+  a: Pick<TimelineElement, "link"> & LinkScoped,
+  b: Pick<TimelineElement, "link"> & LinkScoped,
+): boolean {
+  return isLinked(a) && a.link === b.link && sameCompositionScope(a, b);
 }
 
 export function audioPillFlags(
-  audio: Pick<TimelineElement, "id" | "tag" | "src" | "hidden" | "audioGroupHidden">,
-  elements: readonly Pick<TimelineElement, "id" | "tag" | "src">[],
+  audio: Pick<TimelineElement, "hidden" | "audioGroupHidden" | "link">,
+  _elements?: readonly unknown[],
 ): { muted: boolean; linked: boolean } {
   return {
     muted: audio.hidden === true || audio.audioGroupHidden === true,
-    linked: isLinkedVideoAudio(audio, elements),
+    linked: isLinked(audio),
   };
 }
 
-/** An audio pill whose file is also a video clip on this timeline. */
-export function isLinkedVideoAudio(
-  audio: Pick<TimelineElement, "id" | "tag" | "src">,
-  elements: readonly Pick<TimelineElement, "id" | "tag" | "src">[],
-): boolean {
-  if (audio.tag.trim().toLowerCase() !== "audio") return false;
-  const key = mediaFileKey(audio.src);
-  if (!key) return false;
-  return elements.some((element) => {
-    if (element.id === audio.id) return false;
-    if (element.tag.trim().toLowerCase() !== "video") return false;
-    return mediaFileKey(element.src) === key;
-  });
+export function linkedMembersOf<T extends LinkedElement>(element: T, elements: readonly T[]): T[] {
+  if (!isLinked(element)) return [element];
+  const members = elements.filter((candidate) => sharesLinkGroup(candidate, element));
+  return members.some((member) => keyOf(member) === keyOf(element))
+    ? members
+    : [element, ...members];
+}
+
+export function expandToLinkedMembers(
+  keys: Iterable<string>,
+  elements: readonly LinkedElement[],
+): Set<string> {
+  const expanded = new Set(keys);
+  const seeds = elements.filter((el) => expanded.has(keyOf(el)) && isLinked(el));
+  for (const element of elements) {
+    if (seeds.some((seed) => sharesLinkGroup(seed, element))) expanded.add(keyOf(element));
+  }
+  return expanded;
+}
+
+export function linkedGestureKeys(
+  selected: ReadonlySet<string>,
+  grabbed: LinkedElement,
+  elements: readonly LinkedElement[],
+  altKey: boolean,
+): Set<string> {
+  const grabbedKey = keyOf(grabbed);
+  if (altKey) return new Set([grabbedKey]);
+  const base = selected.has(grabbedKey) ? selected : [grabbedKey];
+  return expandToLinkedMembers(base, elements);
 }
