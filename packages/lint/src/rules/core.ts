@@ -103,16 +103,22 @@ function resolvedRuleSelectors(rule: postcss.Rule): string[] {
   );
 }
 
+// The rightmost compound: the nodes that match the styled element itself.
+function rightmostCompoundNodes(selectorNode: selectorParser.Selector): selectorParser.Node[] {
+  const subject: selectorParser.Node[] = [];
+  selectorNode.each((node) => {
+    if (node.type === "combinator") subject.length = 0;
+    else subject.push(node);
+  });
+  return subject;
+}
+
 function selectorAliasesRuntimeHiddenStyle(selector: string): boolean {
   let unsafe = false;
   try {
     selectorParser((root) => {
       root.each((selectorNode) => {
-        const subject: selectorParser.Node[] = [];
-        selectorNode.each((node) => {
-          if (node.type === "combinator") subject.length = 0;
-          else subject.push(node);
-        });
+        const subject = rightmostCompoundNodes(selectorNode);
 
         const hostScoped = subject.some(
           (node) =>
@@ -140,6 +146,69 @@ function selectorAliasesRuntimeHiddenStyle(selector: string): boolean {
     return false;
   }
   return unsafe;
+}
+
+const POSITION_PROPERTIES = new Set(["left", "top", "right", "bottom", "inset"]);
+
+function weakIdOf(node: selectorParser.Node): string | null {
+  if (node.type === "attribute" && node.attribute.toLowerCase() === "id") {
+    return node.operator === "=" && node.value ? node.value : null;
+  }
+  if (node.type !== "pseudo" || node.value.toLowerCase() !== ":where") return null;
+  const inner = node.nodes.flatMap((option) => option.nodes).find((n) => n.type === "id");
+  return inner ? inner.value : null;
+}
+
+// The id a subject targets only via `[id="x"]` or `:where(#x)`, which carry class-level or zero specificity
+// and so lose to a compound class rule like `.parent .row`. A bare `#id` never does.
+function reducedSpecificityId(selector: string): string | null {
+  let matched: string | null = null;
+  try {
+    selectorParser((root) => {
+      root.each((selectorNode) => {
+        const subject = rightmostCompoundNodes(selectorNode);
+        if (subject.some((node) => node.type === "id")) return;
+        for (const node of subject) matched = weakIdOf(node) ?? matched;
+      });
+    }).processSync(selector);
+  } catch {
+    return null;
+  }
+  return matched;
+}
+
+// `#id` with the characters a bare id selector cannot hold (a leading digit, punctuation) hex-escaped.
+function cssIdSelector(id: string): string {
+  return `#${id.replace(/[^a-zA-Z0-9_-]|^-?\d/g, (match) =>
+    Array.from(match, (char) => `\\${char.codePointAt(0)?.toString(16)} `).join(""),
+  )}`;
+}
+
+function reducedSpecificityIdFindings(
+  rule: postcss.Rule,
+  reported: Set<string>,
+): HyperframeLintFinding[] {
+  const positionProps = rule.nodes.flatMap((node) =>
+    node.type === "decl" && !node.important && POSITION_PROPERTIES.has(node.prop.toLowerCase())
+      ? [node.prop]
+      : [],
+  );
+  if (positionProps.length === 0) return [];
+  const findings: HyperframeLintFinding[] = [];
+  for (const selector of resolvedRuleSelectors(rule)) {
+    const id = reported.has(selector) ? null : reducedSpecificityId(selector);
+    if (id === null) continue;
+    reported.add(selector);
+    findings.push({
+      code: "id_override_reduced_specificity",
+      severity: "warning",
+      message: `Selector "${selector}" sets ${positionProps.join("/")} through [id=...] or :where(#id), which has class-level or zero specificity, so a compound class rule (e.g. ".parent .row") on the same element can silently win over this override.`,
+      selector,
+      fixHint: `Use \`${cssIdSelector(id)}\` instead; id specificity beats any selector built only from classes.`,
+      snippet: truncateSnippet(rule.toString()),
+    });
+  }
+  return findings;
 }
 
 function ruleForcesOpacityZero(rule: postcss.Rule): boolean {
@@ -501,6 +570,7 @@ export const coreRules: Array<(ctx: LintContext) => HyperframeLintFinding[]> = [
     const findings: HyperframeLintFinding[] = [];
     const reportedRepeatedIds = new Set<string>();
     const reportedHiddenStyleSelectors = new Set<string>();
+    const reportedReducedIdSelectors = new Set<string>();
     for (const style of styles) {
       let root: postcss.Root;
       try {
@@ -521,6 +591,7 @@ export const coreRules: Array<(ctx: LintContext) => HyperframeLintFinding[]> = [
       }
       root.walkRules((rule) => {
         const forcesOpacityZero = ruleForcesOpacityZero(rule);
+        findings.push(...reducedSpecificityIdFindings(rule, reportedReducedIdSelectors));
         for (const selector of resolvedRuleSelectors(rule)) {
           const repeatedId = repeatedDescendantId(selector);
           if (repeatedId && !reportedRepeatedIds.has(repeatedId)) {
