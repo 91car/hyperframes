@@ -83,6 +83,11 @@ export function duckVoiceSources(doc: Document, bed: Element): string[] {
     .map((candidate) => candidate.id);
 }
 
+export function offersDuck(doc: Document | null, bed: Element | null): boolean {
+  if (!doc || !isDuckableBed(bed)) return false;
+  return readBedCarve(bed)?.enabled === true || duckVoiceSources(doc, bed).length > 0;
+}
+
 async function writeMeasuredCarve(
   doc: Document,
   bed: Element,

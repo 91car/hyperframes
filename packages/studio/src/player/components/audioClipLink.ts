@@ -34,17 +34,18 @@ export function sharesLinkGroup(
 }
 
 export function audioPillFlags(
-  audio: Pick<TimelineElement, "hidden" | "audioGroupHidden" | "link">,
+  audio: Pick<TimelineElement, "hidden" | "audioGroupHidden">,
   _elements?: readonly unknown[],
-): { muted: boolean; linked: boolean } {
-  return {
-    muted: audio.hidden === true || audio.audioGroupHidden === true,
-    linked: isLinked(audio),
-  };
+): { muted: boolean } {
+  return { muted: audio.hidden === true || audio.audioGroupHidden === true };
 }
 
-export function linkedMembersOf<T extends LinkedElement>(element: T, elements: readonly T[]): T[] {
-  if (!isLinked(element)) return [element];
+export function linkedMembersOf<T extends LinkedElement>(
+  element: T,
+  elements: readonly T[],
+  linked = true,
+): T[] {
+  if (!linked || !isLinked(element)) return [element];
   const members = elements.filter((candidate) => sharesLinkGroup(candidate, element));
   return members.some((member) => keyOf(member) === keyOf(element))
     ? members
@@ -54,8 +55,10 @@ export function linkedMembersOf<T extends LinkedElement>(element: T, elements: r
 export function expandToLinkedMembers(
   keys: Iterable<string>,
   elements: readonly LinkedElement[],
+  linked = true,
 ): Set<string> {
   const expanded = new Set(keys);
+  if (!linked) return expanded;
   const seeds = elements.filter((el) => expanded.has(keyOf(el)) && isLinked(el));
   for (const element of elements) {
     if (seeds.some((seed) => sharesLinkGroup(seed, element))) expanded.add(keyOf(element));
@@ -68,9 +71,10 @@ export function linkedGestureKeys(
   grabbed: LinkedElement,
   elements: readonly LinkedElement[],
   altKey: boolean,
+  linked = true,
 ): Set<string> {
   const grabbedKey = keyOf(grabbed);
   if (altKey) return new Set([grabbedKey]);
   const base = selected.has(grabbedKey) ? selected : [grabbedKey];
-  return expandToLinkedMembers(base, elements);
+  return expandToLinkedMembers(base, elements, linked);
 }

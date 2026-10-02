@@ -435,6 +435,10 @@ export interface Composition {
     timing: { start?: number; duration?: number; trackIndex?: number },
     opts?: { linked?: boolean },
   ): void;
+  /** Frames `id` sits from its `data-sync-origin` partner, positive when late; null if unpaired or rates differ. */
+  syncOffset(id: HfId, fps?: number): number | null;
+  moveIntoSync(id: HfId): void;
+  slipIntoSync(id: HfId): void;
   removeElement(id: HfId): void;
   /**
    * Insert an HTML fragment as a child of `parent` at `index` (WS-D).
