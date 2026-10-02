@@ -204,17 +204,17 @@ export async function writePreparedContent(
   prepare: (html: string, sourceFile: string) => string,
   writeProjectFile: (path: string, content: string, expectedContent?: string) => Promise<void>,
   showToast: ShowToast,
-): Promise<string> {
+): Promise<{ content: string; failed: boolean }> {
   const preparedContent = prepare(patchedContent, targetPath);
-  if (preparedContent === patchedContent) return patchedContent;
+  if (preparedContent === patchedContent) return { content: patchedContent, failed: false };
   try {
     await writeProjectFile(targetPath, preparedContent, patchedContent);
-    return preparedContent;
+    return { content: preparedContent, failed: false };
   } catch (error) {
     showToast(
       `Saved, but couldn't finish updating ${targetPath}: ${getErrorDetail(error)}`,
       "error",
     );
-    return patchedContent;
+    return { content: patchedContent, failed: true };
   }
 }

@@ -6,6 +6,7 @@ import type { PersistDomEditOperations } from "./domEditCommitTypes";
 import type { PatchOperation } from "../utils/sourcePatcher";
 import {
   DomEditPersistUnsafeValueError,
+  DomEditPersistPreparedWriteError,
   DomEditPersistUnresolvableError,
   warnDomEditPersistNoOp,
 } from "./domEditPersistFailure";
@@ -139,6 +140,7 @@ export function useDomEditPersist({
         coalesceMs: options?.coalesceMs,
       };
       const prepare = options?.prepareContent;
+      let preparedWriteFailed = false;
       // Read, server patch, follow-up write and history hold the file's queue, so no save lands between them.
       const saved = await serializeStudioFileMutations(writeProjectFile, [targetPath], async () => {
         const originalContent = await readTarget();
@@ -148,7 +150,7 @@ export function useDomEditPersist({
 
         const patchedContent =
           typeof patchData.content === "string" ? patchData.content : originalContent;
-        const finalContent = prepare
+        const prepared = prepare
           ? await writePreparedContent(
               targetPath,
               patchedContent,
@@ -156,7 +158,9 @@ export function useDomEditPersist({
               writeProjectFile,
               showToast,
             )
-          : patchedContent;
+          : { content: patchedContent, failed: false };
+        preparedWriteFailed = prepared.failed;
+        const finalContent = prepared.content;
 
         await editHistory.recordEdit({
           ...history,
@@ -194,7 +198,7 @@ export function useDomEditPersist({
       if (!options?.skipRefresh) {
         reloadPreview();
       }
-      return completePersistence(
+      const outcome = completePersistence(
         finalContent === patchedContent &&
           typeof patchData.path === "string" &&
           typeof patchData.version === "string"
@@ -202,6 +206,8 @@ export function useDomEditPersist({
           : undefined,
         true,
       );
+      if (preparedWriteFailed) throw new DomEditPersistPreparedWriteError(targetPath);
+      return outcome;
     },
     [
       activeCompPath,
