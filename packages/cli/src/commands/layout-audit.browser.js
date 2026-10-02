@@ -1612,18 +1612,23 @@
 
   // True when the visible dash window [offset, offset + length] sits in one gap (an unstarted
   // draw-on), allowing 10% overlap. Zero-length dashes paint only with a round or square linecap.
+  // Distances are in `pathLength` units when set; a `pathLength` resolving to 0 paints solid.
   function shaftDashHidden(path, total) {
     const style = getComputedStyle(path);
     const dashes = dashArrayLengths(style.strokeDasharray, path);
     if (dashes === null) return false;
+    const authored = path.pathLength?.baseVal; // SVGAnimatedNumber; 0 when unset or unparseable
+    if (authored === 0 && path.hasAttribute("pathLength")) return false;
     const dotsPaint = (style.strokeLinecap || "butt") !== "butt";
     const dashPaints = (index) => index % 2 === 0 && (dashes[index] > 0 || dotsPaint);
     if (!dashes.some((_, index) => dashPaints(index))) return true; // only butt-capped dots
-    const period = dashes.reduce((sum, length) => sum + length, 0);
-    if (total > period) return false; // a full period of dash paints — call it visible
+    const period = dashes.reduce((sum, dash) => sum + dash, 0);
+    const length = authored > 0 ? authored : total;
     const offset = dashLength(style.strokeDashoffset, path); // unparseable reads as 0
-    const start = Number.isFinite(offset) ? ((offset % period) + period) % period : 0;
-    const end = start + total;
+    // Wrap into [0, period); adding the period only to negatives keeps `0.9 % 2` exact.
+    const wrapped = Number.isFinite(offset) ? offset % period : 0;
+    const start = wrapped < 0 ? wrapped + period : wrapped;
+    const end = start + length;
     let painted = 0;
     let segmentStart = 0;
     // Two periods cover any window that starts inside the first.
@@ -1635,7 +1640,7 @@
       }
       segmentStart = segmentEnd;
     }
-    return painted <= total * 0.1;
+    return painted <= length * 0.1;
   }
 
   // Computed `stroke-dasharray` as an even-length list of user-unit lengths, or null when the
