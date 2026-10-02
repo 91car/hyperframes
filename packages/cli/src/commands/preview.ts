@@ -100,9 +100,11 @@ interface EmbeddedStudioOptions extends StudioLaunchOptions {
 }
 
 type StudioChildProcess = ChildProcessByStdio<null, Readable, Readable>;
+const STUDIO_CHILD_SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+type StudioShutdownSignal = (typeof STUDIO_CHILD_SHUTDOWN_SIGNALS)[number];
 interface StudioSignalTarget {
-  once(event: "SIGINT" | "SIGTERM", listener: () => void): unknown;
-  off(event: "SIGINT" | "SIGTERM", listener: () => void): unknown;
+  once(event: StudioShutdownSignal, listener: () => void): unknown;
+  off(event: StudioShutdownSignal, listener: () => void): unknown;
 }
 type ContextField = "server" | "selection" | "lint" | "capabilities";
 type CompactSelectionPayload = Pick<
@@ -1337,8 +1339,7 @@ export function waitForStudioChildClose(
   const shutdown = (): void => {
     if (child.pid) killProcessTree(child.pid);
   };
-  signalTarget.once("SIGINT", shutdown);
-  signalTarget.once("SIGTERM", shutdown);
+  for (const signal of STUDIO_CHILD_SHUTDOWN_SIGNALS) signalTarget.once(signal, shutdown);
 
   // A short-lived Vite child can exit before launch setup reaches this point.
   // ChildProcess does not replay lifecycle events to listeners attached later,
@@ -1355,8 +1356,7 @@ export function waitForStudioChildClose(
   return closed.finally(() => {
     // Signal listeners keep Bun's event loop alive even after Vite exits. Leaving
     // them registered makes `preview --stop` close the port but leak the wrapper.
-    signalTarget.off("SIGINT", shutdown);
-    signalTarget.off("SIGTERM", shutdown);
+    for (const signal of STUDIO_CHILD_SHUTDOWN_SIGNALS) signalTarget.off(signal, shutdown);
   });
 }
 
@@ -1422,7 +1422,7 @@ export function reportPreviewShutdown(json: boolean): void {
 /**
  * Dev mode: spawn the studio dev server from the monorepo.
  */
-async function runDevMode(dir: string, options?: StudioLaunchOptions): Promise<void> {
+export async function runDevMode(dir: string, options?: StudioLaunchOptions): Promise<void> {
   // Find monorepo root by navigating from packages/cli/src/commands/
   const thisFile = fileURLToPath(import.meta.url);
   const repoRoot = resolve(dirname(thisFile), "..", "..", "..", "..");
@@ -1442,6 +1442,7 @@ async function runDevMode(dir: string, options?: StudioLaunchOptions): Promise<v
   const child = spawn("bun", ["run", "dev", "--", ...previewViteArgs(options?.port)], {
     cwd: studioPkgDir,
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
     env: studioProxyEnv(options?.autoProxy ?? true, process.env, {
       projectDir: dir,
       projectName: pName,
@@ -1487,7 +1488,10 @@ function hasLocalStudio(dir: string): boolean {
  * Local studio mode: spawn Vite using a locally installed @hyperframes/studio.
  * Provides full Vite HMR and the complete studio experience.
  */
-async function runLocalStudioMode(dir: string, options?: StudioLaunchOptions): Promise<void> {
+export async function runLocalStudioMode(
+  dir: string,
+  options?: StudioLaunchOptions,
+): Promise<void> {
   const req = createRequire(join(dir, "package.json"));
   const studioPkgPath = dirname(req.resolve("@hyperframes/studio/package.json"));
   const pName = options?.projectName ?? basename(dir);
@@ -1504,6 +1508,7 @@ async function runLocalStudioMode(dir: string, options?: StudioLaunchOptions): P
   const child = spawn(viteCommand.command, viteCommand.args, {
     cwd: studioPkgPath,
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
     env: studioProxyEnv(options?.autoProxy ?? true, process.env, {
       projectDir: dir,
       projectName: pName,
