@@ -112,9 +112,8 @@ export function useDomEditPersist({
         });
       }
 
-      // An imported font or a prepareContent takes the server patch: the server writes the @font-face
-      // with the edit and prepareContent embellishes the patched file, while the SDK serializes only
-      // the patched DOM. The SDK re-reads in the file queue; this read is its fallback.
+      // An imported font or prepareContent takes the server patch; the SDK serializes only the patched
+      // DOM. The SDK re-reads in the file queue; this read is its fallback.
       if (onTrySdkPersist && !font && !options?.prepareContent) {
         const originalContent = await readTarget();
         if (originalContent === null) return;
