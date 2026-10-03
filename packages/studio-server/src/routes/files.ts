@@ -1467,7 +1467,9 @@ async function applyGsapMutations(
     return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
   }
 
+  const mutationChanges: boolean[] = [];
   for (const mutation of mutations) {
+    const previousScript = block.scriptText;
     const result = await executeGsapMutation(mutation, block, respond, writer);
     if (result instanceof Response) return result;
     let newScript = typeof result === "string" ? result : result.script;
@@ -1480,6 +1482,7 @@ async function applyGsapMutations(
           ? syncPositionHoldsBeforeKeyframes(newScript)
           : (await loadGsapParser()).syncPositionHoldsBeforeKeyframes(newScript);
     }
+    mutationChanges.push(newScript !== previousScript);
     block.scriptText = newScript;
   }
 
@@ -1509,6 +1512,7 @@ async function applyGsapMutations(
     ok: true,
     changed,
     mutated: changed,
+    mutationChanges,
     parsed: parseGsapScriptAcorn(block.scriptText),
     before: beforeHtml,
     after: newHtml,
