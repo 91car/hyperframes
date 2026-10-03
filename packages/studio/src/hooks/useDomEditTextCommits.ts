@@ -1,5 +1,6 @@
 import { trackPreviewFeatureUsed } from "../utils/previewFeatureUsage";
 import { useCallback, useRef } from "react";
+import { refreshTimelineRowText } from "./refreshTimelineRowText";
 import { normalizeDomEditStyleValue } from "../utils/studioHelpers";
 import { injectPreviewGoogleFont, injectPreviewImportedFont } from "../utils/studioFontHelpers";
 import {
@@ -64,6 +65,7 @@ async function resyncDomTextSelectionFromPreview(
   if (!doc) return;
   const refreshed = findElementForSelection(doc, selection, activeCompPath);
   if (!refreshed) return;
+  refreshTimelineRowText(refreshed);
   const nextSelection = await buildDomSelectionFromTarget(refreshed);
   if (!nextSelection) return;
   applyDomSelection(nextSelection, { revealPanel: false, preserveGroup: true });
