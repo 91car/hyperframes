@@ -14,11 +14,11 @@
       "files": 2
     },
     "general-video": {
-      "hash": "a4f4532304ff7ec5",
+      "hash": "02c4d31bb367fd06",
       "files": 5
     },
     "hyperframes": {
-      "hash": "d6a3b038ebb96312",
+      "hash": "210f86bc032832da",
       "files": 29
     },
     "hyperframes-animation": {
@@ -30,7 +30,7 @@
       "files": 7
     },
     "hyperframes-cli": {
-      "hash": "0103a548049ffd4e",
+      "hash": "c4e517a28b0e7ade",
       "files": 11
     },
     "hyperframes-core": {
