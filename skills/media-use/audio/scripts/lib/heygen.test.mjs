@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { heygenAuthHeaders, heygenAuthMethod, loadEnvFromDir } from "./heygen.mjs";
@@ -114,4 +114,30 @@ test("loadEnvFromDir skips a .env folder and loads the .env file above it", () =
     delete process.env.MEDIA_USE_ENV_DIR_TEST;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("heygenAuthMethod returns null when the credentials path is a folder", () => {
+  withCleanHeygenEnv(() => {
+    const dir = mkdtempSync(join(tmpdir(), "heygen-cred-"));
+    try {
+      mkdirSync(join(dir, "credentials"));
+      process.env.HEYGEN_CONFIG_DIR = dir;
+      assert.equal(heygenAuthMethod(), null);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+test("heygenAuthMethod returns null when the credentials path is a symlink loop", () => {
+  withCleanHeygenEnv(() => {
+    const dir = mkdtempSync(join(tmpdir(), "heygen-cred-"));
+    try {
+      symlinkSync(join(dir, "credentials"), join(dir, "credentials"));
+      process.env.HEYGEN_CONFIG_DIR = dir;
+      assert.equal(heygenAuthMethod(), null);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
