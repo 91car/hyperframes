@@ -308,6 +308,22 @@
   }
 }
 
+/* A video's sound strip is too short for the peak readout: only the mark stays, on a chip clear of the clip's
+   rounded corner and above the waveform canvas layer (z 10), below the fade handles (z 30). */
+.audible-video-wave [data-peak-text] {
+  display: none;
+}
+
+.audible-video-wave [data-peak-badge] {
+  top: 50%;
+  right: var(--timeline-clip-radius);
+  translate: 0 -50%;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: var(--timeline-clip-chip-audio-bg);
+  z-index: 20;
+}
+
 .timeline-clip.is-audio.is-hovered {
   background-color: var(--timeline-clip-audio-bg-hover);
 }
