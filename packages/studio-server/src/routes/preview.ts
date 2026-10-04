@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { parseHTML } from "linkedom";
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import { join, resolve } from "node:path";
@@ -12,7 +13,7 @@ import {
 } from "@hyperframes/core/compiler";
 import { STUDIO_PREVIEW_MARK_META } from "@hyperframes/core/studio-preview-mark";
 import { gsapCdnDist, motionPathPluginUrl } from "@hyperframes/core/gsap-cdn";
-import { injectTagsAtHeadStart } from "@hyperframes/core/compiler/html-document";
+import { findStartTags, injectTagsAtHeadStart } from "@hyperframes/core/compiler/html-document";
 import { isWithinProjectRoot } from "@hyperframes/parsers/asset-resolution";
 import type { ResolvedProject, StudioApiAdapter } from "../types.js";
 import { isProjectRootMissing, resolveWithinProject } from "../helpers/safePath.js";
@@ -154,16 +155,53 @@ function injectMotionPathPluginIfNeeded(html: string): string {
   // core gsap script — which often lives at body-end, not <head>. Insert it
   // directly after the gsap script tag; only fall back to <head> if none is found
   // (e.g. gsap is inlined).
-  const gsapScript = /<script\b[^>]*\bsrc=["'][^"']*\/gsap(\.min)?\.js["'][^>]*>\s*<\/script>/i;
-  const match = html.match(gsapScript);
-  if (match) {
-    const version = match[0].match(/gsap@([\d.]+)/)?.[1];
-    const gsapTagType = match[0].match(/\stype=("[^"]*"|'[^']*')/i)?.[0] ?? "";
-    const pluginTag = `<script${gsapTagType} src="${motionPathPluginUrl(version)}"></script>`;
-    const end = html.indexOf(match[0]) + match[0].length;
-    return html.slice(0, end) + "\n" + pluginTag + html.slice(end);
+  const gsap = findGsapCoreScript(html);
+  if (gsap) {
+    const version = gsap.src.match(/gsap@([\d.]+)/)?.[1];
+    const ordering = `${gsap.type ? ` type="${gsap.type}"` : ""}${gsap.defer ? " defer" : ""}`;
+    const pluginTag = `<script${ordering} src="${motionPathPluginUrl(version)}"></script>`;
+    return html.slice(0, gsap.end) + "\n" + pluginTag + html.slice(gsap.end);
   }
   return injectScriptTagIntoHead(html, GSAP_MOTION_PATH_CDN_SCRIPT);
+}
+
+function isGsapCoreUrl(src: string): boolean {
+  const base = "http://localhost/";
+  return URL.canParse(src, base) && /\/gsap(\.min)?\.js$/i.test(new URL(src, base).pathname);
+}
+
+type GsapCoreScript = { src: string; type: string | null; defer: boolean; end: number };
+
+function findGsapCoreScript(html: string): GsapCoreScript | null {
+  const scripts = [...parseHTML(html).document.querySelectorAll("script")];
+  // The scanner skips comments, raw text and templates, so its `<script` offsets line up with the DOM's scripts.
+  const starts = findStartTags(html, "script");
+  if (starts.length !== scripts.length) return null;
+  const at = scripts.findIndex((script) =>
+    isGsapCoreUrl(lowerCaseAttributes(script).get("src") ?? ""),
+  );
+  if (at === -1) return null;
+  const attributes = lowerCaseAttributes(scripts[at]!);
+  const end = scriptCloseEnd(html, starts[at]!);
+  if (end === 0) return null;
+  return {
+    src: attributes.get("src")!,
+    type: attributes.get("type") ?? null,
+    defer: attributes.has("defer"),
+    end,
+  };
+}
+
+function lowerCaseAttributes(el: Element): Map<string, string> {
+  return new Map([...el.attributes].map((a) => [a.name.toLowerCase(), a.value]));
+}
+
+/** Index just past the `</script>` that closes the script starting at `start`; 0 when it never closes. */
+function scriptCloseEnd(html: string, start: number): number {
+  const close = /<\/script/gi;
+  close.lastIndex = start;
+  const closeAt = close.exec(html)?.index;
+  return closeAt === undefined ? 0 : html.indexOf(">", closeAt) + 1;
 }
 
 function injectStudioMotionDependencies(html: string, manifestContent: string): string {
