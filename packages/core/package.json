@@ -323,6 +323,12 @@
       "import": "./src/runtime/startResolver.ts",
       "types": "./src/runtime/startResolver.ts"
     },
+    "./runtime/composition-length": {
+      "bun": "./src/runtime/compositionLength.ts",
+      "node": "./dist/runtime/compositionLength.js",
+      "import": "./src/runtime/compositionLength.ts",
+      "types": "./src/runtime/compositionLength.ts"
+    },
     "./runtime/protocol": {
       "bun": "./src/runtime/protocol.ts",
       "node": "./dist/runtime/protocol.js",
@@ -698,6 +704,10 @@
       "./runtime/start-resolver": {
         "import": "./dist/runtime/startResolver.js",
         "types": "./dist/runtime/startResolver.d.ts"
+      },
+      "./runtime/composition-length": {
+        "import": "./dist/runtime/compositionLength.js",
+        "types": "./dist/runtime/compositionLength.d.ts"
       },
       "./runtime/protocol": {
         "import": "./dist/runtime/protocol.js",
